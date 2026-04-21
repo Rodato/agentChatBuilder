@@ -39,21 +39,31 @@ class RAGAgent(BaseAgent):
         self.log_processing(state)
 
         # Try RAG search if vector store available
-        context = ""
+        rag_context = ""
         sources = []
         if self.vector_store:
             try:
-                results = self.vector_store.search(state.user_input, top_k=5)
+                results = self.vector_store.search(
+                    state.user_input, top_k=5, bot_id=state.bot_id
+                )
                 if results:
-                    context = "\n\n".join(r.get("content", "") for r in results)
+                    rag_context = "\n\n".join(r.get("content", "") for r in results)
                     sources = results
             except Exception as e:
                 logger.warning(f"RAG search failed: {e}")
 
-        if not context:
+        if not rag_context and not state.context:
             state.response = NO_RESULTS.get(state.language, NO_RESULTS["es"])
             state.metadata["agent_used"] = "rag"
             return state
+
+        # Preserve any upstream context (e.g. captured workflow vars) and append RAG snippets.
+        context_parts = []
+        if state.context:
+            context_parts.append(state.context)
+        if rag_context:
+            context_parts.append(rag_context)
+        context = "\n\n".join(context_parts)
 
         prompt = f"Context:\n{context}\n\nQuestion: {state.user_input}"
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -21,6 +22,7 @@ export interface Agent {
   };
   enabled: boolean;
   is_custom: boolean;
+  trigger_flows?: string[]; // workflow ids seleccionados (si vacío = todos los manuales)
 }
 
 const TOOL_LABELS: Record<string, string> = {
@@ -37,7 +39,7 @@ interface AgentCardProps {
   onEdit: (agent: Agent) => void;
 }
 
-export function AgentCard({ agent, onToggle, onEdit }: AgentCardProps) {
+function AgentCardImpl({ agent, onToggle, onEdit }: AgentCardProps) {
   const activeTools = Object.entries(agent.tools)
     .filter(([, active]) => active)
     .map(([key]) => key);
@@ -75,3 +77,5 @@ export function AgentCard({ agent, onToggle, onEdit }: AgentCardProps) {
     </div>
   );
 }
+
+export const AgentCard = memo(AgentCardImpl);

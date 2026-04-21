@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, use } from "react";
+import { useState, useEffect, useRef, use, useCallback } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,89 +13,75 @@ import { Switch } from "@/components/ui/switch";
 import { Plus } from "lucide-react";
 import { AgentCard, Agent } from "@/components/AgentCard";
 import { AgentEditPanel } from "@/components/AgentEditPanel";
-import { botsApi, chatApi, Bot } from "@/lib/api";
+import { WorkflowEditor } from "@/components/workflow/WorkflowEditor";
+import { WorkflowList } from "@/components/workflow/WorkflowList";
+import {
+  botsApi,
+  chatApi,
+  documentsApi,
+  agentsApi,
+  AgentRow,
+  AgentPatch,
+  Bot,
+  Document,
+} from "@/lib/api";
 
-const MOCK_AGENTS: Agent[] = [
-  {
-    id: "greeting",
-    name: "Saludo",
-    objective: "Manejar saludos y mensajes de bienvenida",
-    system_prompt: "Eres un asistente amable. Saluda al usuario calurosamente y pregunta cómo puedes ayudarle.",
-    model: "google/gemini-2.5-flash-lite",
-    temperature: 0.7,
-    tools: { rag_search: false, user_memory: false, trigger_flow: false, human_handoff: false, external_api: false },
-    enabled: true,
-    is_custom: false,
-  },
-  {
-    id: "factual",
-    name: "Informativo (RAG)",
-    objective: "Responder preguntas desde tus documentos",
-    system_prompt: "Eres un asistente bien informado. Responde preguntas con precisión basándote en el contexto proporcionado.",
-    model: "google/gemini-2.5-flash",
-    temperature: 0.3,
-    tools: { rag_search: true, user_memory: false, trigger_flow: false, human_handoff: false, external_api: false },
-    enabled: true,
-    is_custom: false,
-  },
-  {
-    id: "plan",
-    name: "Planificación",
-    objective: "Ayudar a los usuarios a planificar y organizar",
-    system_prompt: "Eres un asistente de planificación estratégica. Ayuda a crear planes detallados y accionables.",
-    model: "anthropic/claude-sonnet-4.6",
-    temperature: 0.5,
-    tools: { rag_search: true, user_memory: false, trigger_flow: false, human_handoff: false, external_api: false },
-    enabled: false,
-    is_custom: false,
-  },
-  {
-    id: "ideate",
-    name: "Lluvia de Ideas",
-    objective: "Generar ideas creativas",
-    system_prompt: "Eres un compañero creativo de brainstorming. Genera ideas diversas e innovadoras.",
-    model: "mistralai/mistral-small-creative",
-    temperature: 0.9,
-    tools: { rag_search: false, user_memory: false, trigger_flow: false, human_handoff: false, external_api: false },
-    enabled: false,
-    is_custom: false,
-  },
-  {
-    id: "sensitive",
-    name: "Temas Sensibles",
-    objective: "Manejar temas delicados con cuidado",
-    system_prompt: "Eres un asistente compasivo y cuidadoso. Maneja temas sensibles con empatía y respeto.",
-    model: "anthropic/claude-sonnet-4.6",
-    temperature: 0.3,
-    tools: { rag_search: false, user_memory: false, trigger_flow: false, human_handoff: true, external_api: false },
-    enabled: true,
-    is_custom: false,
-  },
-  {
-    id: "fallback",
-    name: "Fallback",
-    objective: "Manejar consultas poco claras o ambiguas",
-    system_prompt: "Eres un asistente útil. Cuando una consulta no está clara, haz preguntas de aclaración.",
-    model: "google/gemini-2.5-flash-lite",
-    temperature: 0.5,
-    tools: { rag_search: false, user_memory: false, trigger_flow: false, human_handoff: false, external_api: false },
-    enabled: true,
-    is_custom: false,
-  },
-];
+const DEFAULT_TOOLS = {
+  rag_search: false,
+  user_memory: false,
+  trigger_flow: false,
+  human_handoff: false,
+  external_api: false,
+};
+
+function rowToAgent(row: AgentRow): Agent {
+  return {
+    id: row.agent_id,
+    name: row.name,
+    objective: row.objective,
+    system_prompt: row.system_prompt,
+    model: row.model,
+    temperature: row.temperature,
+    tools: { ...DEFAULT_TOOLS, ...(row.tools || {}) },
+    enabled: row.enabled,
+    is_custom: row.is_custom,
+    trigger_flows: row.metadata?.trigger_flows ?? [],
+  };
+}
+
+function conversationKey(botId: string) {
+  return `acb.conversation_id.${botId}`;
+}
+
+function getOrCreateConversationId(botId: string): string {
+  if (typeof window === "undefined") return "";
+  const k = conversationKey(botId);
+  let id = window.localStorage.getItem(k);
+  if (!id) {
+    id = crypto.randomUUID();
+    window.localStorage.setItem(k, id);
+  }
+  return id;
+}
 
 export default function BotPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const [bot, setBot] = useState<Bot | null>(null);
   const [botLoading, setBotLoading] = useState(true);
-  const [documents] = useState<Array<{ id: string; name: string; status: string; chunks: number }>>([]);
-  const [agents, setAgents] = useState<Agent[]>(MOCK_AGENTS);
+  const [documents, setDocuments] = useState<Document[]>([]);
+  const [uploadingDoc, setUploadingDoc] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [agentsLoading, setAgentsLoading] = useState(true);
   const [editingAgent, setEditingAgent] = useState<Agent | null>(null);
   const [editPanelOpen, setEditPanelOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState<Array<{ role: string; content: string; meta?: string }>>([]);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
+  const [conversationId, setConversationId] = useState<string>("");
   const [saving, setSaving] = useState(false);
+  const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -104,7 +90,40 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
       .then(setBot)
       .catch(() => setBot(null))
       .finally(() => setBotLoading(false));
+    documentsApi.list(id).then(setDocuments).catch(() => {});
+    agentsApi
+      .list(id)
+      .then((rows) => setAgents(rows.map(rowToAgent)))
+      .catch(() => setAgents([]))
+      .finally(() => setAgentsLoading(false));
+    const cid = getOrCreateConversationId(id);
+    setConversationId(cid);
   }, [id]);
+
+  // Kick off the conversation — runs on_start workflow if configured, else welcome_message.
+  const startedRef = useRef(false);
+  useEffect(() => {
+    if (!conversationId || startedRef.current || chatMessages.length > 0) return;
+    startedRef.current = true;
+    chatApi
+      .start(id, conversationId)
+      .then((res) => {
+        const metaParts = [res.mode ?? "agentic", res.agent_used, `${res.processing_time_ms ?? 0}ms`].filter(Boolean);
+        setChatMessages([{ role: "assistant", content: res.response, meta: metaParts.join(" · ") }]);
+      })
+      .catch(() => {
+        // Ignore — user can still type.
+      });
+  }, [conversationId, id, chatMessages.length]);
+
+  useEffect(() => {
+    const hasProcessing = documents.some((d) => d.status === "processing");
+    if (!hasProcessing) return;
+    const interval = setInterval(() => {
+      documentsApi.list(id).then(setDocuments).catch(() => {});
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [documents, id]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -117,13 +136,19 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
     setChatMessages((prev) => [...prev, { role: "user", content: text }]);
     setChatLoading(true);
     try {
-      const res = await chatApi.send(text, id);
+      const res = await chatApi.send(id, text, conversationId);
+      const metaParts = [
+        res.mode ?? "agentic",
+        res.agent_used,
+        res.intent ?? undefined,
+        `${res.processing_time_ms}ms`,
+      ].filter(Boolean);
       setChatMessages((prev) => [
         ...prev,
         {
           role: "assistant",
           content: res.response,
-          meta: `${res.agent_used} · ${res.intent} · ${res.processing_time_ms}ms`,
+          meta: metaParts.join(" · "),
         },
       ]);
     } catch (e: unknown) {
@@ -134,6 +159,13 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
     } finally {
       setChatLoading(false);
     }
+  };
+
+  const handleResetConversation = () => {
+    window.localStorage.removeItem(conversationKey(id));
+    startedRef.current = false;
+    setConversationId(getOrCreateConversationId(id));
+    setChatMessages([]);
   };
 
   const handleSaveSettings = async () => {
@@ -153,21 +185,71 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
     }
   };
 
-  const handleToggleAgent = (id: string) => {
-    setAgents((prev) =>
-      prev.map((a) => (a.id === id ? { ...a, enabled: !a.enabled } : a))
-    );
-  };
+  const persistAgent = useCallback(
+    async (agentId: string, patch: AgentPatch) => {
+      try {
+        await agentsApi.update(id, agentId, patch);
+      } catch (e) {
+        console.error("persistAgent", e);
+      }
+    },
+    [id]
+  );
 
-  const handleEditAgent = (agent: Agent) => {
+  const handleToggleAgent = useCallback(
+    (agentId: string) => {
+      setAgents((prev) => {
+        const next = prev.map((a) => (a.id === agentId ? { ...a, enabled: !a.enabled } : a));
+        const updated = next.find((a) => a.id === agentId);
+        if (updated) persistAgent(agentId, { enabled: updated.enabled });
+        return next;
+      });
+    },
+    [persistAgent]
+  );
+
+  const handleEditAgent = useCallback((agent: Agent) => {
     setEditingAgent(agent);
     setEditPanelOpen(true);
-  };
+  }, []);
 
-  const handleSaveAgent = (updated: Agent) => {
+  const handleSaveAgent = async (updated: Agent) => {
     setAgents((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
     setEditPanelOpen(false);
     setEditingAgent(null);
+    await persistAgent(updated.id, {
+      name: updated.name,
+      objective: updated.objective,
+      system_prompt: updated.system_prompt,
+      model: updated.model,
+      temperature: updated.temperature,
+      tools: updated.tools,
+      enabled: updated.enabled,
+      metadata: { trigger_flows: updated.trigger_flows ?? [] },
+    });
+  };
+
+  const handleUploadClick = () => fileInputRef.current?.click();
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    setUploadError(null);
+    setUploadingDoc(true);
+    try {
+      const doc = await documentsApi.upload(id, file);
+      setDocuments((prev) => [doc, ...prev]);
+    } catch (err: unknown) {
+      setUploadError(err instanceof Error ? err.message : "sin respuesta del servidor");
+    } finally {
+      setUploadingDoc(false);
+    }
+  };
+
+  const handleDeleteDoc = async (docId: string) => {
+    await documentsApi.delete(id, docId).catch(() => {});
+    setDocuments((prev) => prev.filter((d) => d.id !== docId));
   };
 
   const handleAddAgent = () => {
@@ -178,7 +260,7 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
       system_prompt: "",
       model: "google/gemini-2.5-flash-lite",
       temperature: 0.7,
-      tools: { rag_search: false, user_memory: false, trigger_flow: false, human_handoff: false, external_api: false },
+      tools: { ...DEFAULT_TOOLS },
       enabled: true,
       is_custom: true,
     };
@@ -217,6 +299,9 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
             <Badge variant={bot.is_active ? "default" : "secondary"}>
               {bot.is_active ? "Activo" : "Inactivo"}
             </Badge>
+            {bot.workflow_mode === "workflow" && (
+              <Badge variant="outline">Modo workflow</Badge>
+            )}
           </div>
         </div>
       </header>
@@ -227,6 +312,7 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
           <TabsList>
             <TabsTrigger value="settings">Configuración</TabsTrigger>
             <TabsTrigger value="agents">Agentes</TabsTrigger>
+            <TabsTrigger value="workflow">Workflow</TabsTrigger>
             <TabsTrigger value="documents">Documentos</TabsTrigger>
             <TabsTrigger value="test">Chat de Prueba</TabsTrigger>
           </TabsList>
@@ -306,24 +392,42 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="space-y-3">
-                  {agents.map((agent) => (
-                    <AgentCard
-                      key={agent.id}
-                      agent={agent}
-                      onToggle={handleToggleAgent}
-                      onEdit={handleEditAgent}
-                    />
-                  ))}
-                </div>
+                {agentsLoading ? (
+                  <p className="text-sm text-gray-500">Cargando agentes...</p>
+                ) : (
+                  <div className="space-y-3">
+                    {agents.map((agent) => (
+                      <AgentCard
+                        key={agent.id}
+                        agent={agent}
+                        onToggle={handleToggleAgent}
+                        onEdit={handleEditAgent}
+                      />
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
             <AgentEditPanel
               agent={editingAgent}
               open={editPanelOpen}
+              botId={id}
               onSave={handleSaveAgent}
               onClose={() => { setEditPanelOpen(false); setEditingAgent(null); }}
             />
+          </TabsContent>
+
+          {/* Workflow Tab */}
+          <TabsContent value="workflow">
+            {selectedWorkflowId ? (
+              <WorkflowEditor
+                botId={id}
+                workflowId={selectedWorkflowId}
+                onBack={() => setSelectedWorkflowId(null)}
+              />
+            ) : (
+              <WorkflowList botId={id} onSelect={setSelectedWorkflowId} />
+            )}
           </TabsContent>
 
           {/* Documents Tab */}
@@ -335,14 +439,28 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
                     <CardTitle>Base de Conocimiento</CardTitle>
                     <CardDescription>Sube documentos para respuestas con RAG</CardDescription>
                   </div>
-                  <Button>+ Subir Documento</Button>
+                  <Button onClick={handleUploadClick} disabled={uploadingDoc}>
+                    {uploadingDoc ? "Subiendo..." : "+ Subir Documento"}
+                  </Button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".pdf,.txt,.docx,.md"
+                    className="hidden"
+                    onChange={handleFileChange}
+                  />
                 </div>
               </CardHeader>
               <CardContent>
+                {uploadError && (
+                  <div className="mb-4 p-3 rounded-md bg-red-50 text-sm text-red-700 border border-red-200">
+                    Error al subir: {uploadError}
+                  </div>
+                )}
                 {documents.length === 0 ? (
                   <div className="text-center py-12 text-gray-500">
                     <p>Aún no hay documentos subidos.</p>
-                    <p className="text-sm">Sube archivos PDF, DOCX o TXT para construir tu base de conocimiento.</p>
+                    <p className="text-sm">Sube archivos PDF, DOCX, TXT o MD para construir tu base de conocimiento.</p>
                   </div>
                 ) : (
                   <div className="space-y-3">
@@ -357,18 +475,24 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
                             <h4 className="font-medium">{doc.name}</h4>
                             <p className="text-sm text-gray-500">
                               {doc.status === "ready"
-                                ? `${doc.chunks} fragmentos indexados`
-                                : "Procesando..."}
+                                ? `Listo · ${(doc.file_size / 1024).toFixed(1)} KB`
+                                : `Procesando · ${(doc.file_size / 1024).toFixed(1)} KB`}
                             </p>
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
                           <Badge
-                            variant={doc.status === "ready" ? "default" : "secondary"}
+                            variant={
+                              doc.status === "ready"
+                                ? "default"
+                                : doc.status === "error"
+                                ? "destructive"
+                                : "secondary"
+                            }
                           >
-                            {doc.status}
+                            {doc.status === "ready" ? "Listo" : doc.status === "error" ? "Error" : "Procesando..."}
                           </Badge>
-                          <Button variant="ghost" size="sm">
+                          <Button variant="ghost" size="sm" onClick={() => handleDeleteDoc(doc.id)}>
                             Eliminar
                           </Button>
                         </div>
@@ -384,8 +508,15 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
           <TabsContent value="test">
             <Card className="h-[600px] flex flex-col">
               <CardHeader>
-                <CardTitle>Probar tu Bot</CardTitle>
-                <CardDescription>Envía mensajes para ver cómo responde tu bot</CardDescription>
+                <div className="flex items-start justify-between">
+                  <div>
+                    <CardTitle>Probar tu Bot</CardTitle>
+                    <CardDescription>Envía mensajes para ver cómo responde tu bot</CardDescription>
+                  </div>
+                  <Button variant="ghost" size="sm" onClick={handleResetConversation}>
+                    Reiniciar conversación
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent className="flex-1 flex flex-col">
                 {/* Messages */}

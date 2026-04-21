@@ -8,6 +8,7 @@ from loguru import logger
 from langgraph.graph import StateGraph, END
 
 from .state import GraphState, AgentState
+from .agent_defaults import build_orchestrator_configs, INTENT_TO_AGENT_ID
 from agents.greeting_agent import GreetingAgent
 from agents.rag_agent import RAGAgent
 from agents.plan_agent import PlanAgent
@@ -17,38 +18,8 @@ from agents.fallback_agent import FallbackAgent
 from llm.multi_llm_client import MultiLLMClient, LLMProvider
 
 
-DEFAULT_AGENT_CONFIGS = {
-    "GREETING": {
-        "model": "mistral-7b",
-        "temperature": 0.7,
-        "system_prompt": "You are a friendly and welcoming assistant. Greet the user warmly and ask how you can help them.",
-    },
-    "FACTUAL": {
-        "model": "mistral-7b",
-        "temperature": 0.3,
-        "system_prompt": "You are a knowledgeable assistant. Answer questions accurately based on the provided context.",
-    },
-    "PLAN": {
-        "model": "gpt-4o-mini",
-        "temperature": 0.5,
-        "system_prompt": "You are a strategic planning assistant. Help users create detailed, actionable plans.",
-    },
-    "IDEATE": {
-        "model": "gemini-flash",
-        "temperature": 0.9,
-        "system_prompt": "You are a creative brainstorming partner. Generate diverse, innovative ideas.",
-    },
-    "SENSITIVE": {
-        "model": "gpt-4o-mini",
-        "temperature": 0.3,
-        "system_prompt": "You are a compassionate and careful assistant. Handle sensitive topics with empathy.",
-    },
-    "AMBIGUOUS": {
-        "model": "mistral-7b",
-        "temperature": 0.5,
-        "system_prompt": "You are a helpful assistant. When a query is unclear, ask clarifying questions.",
-    },
-}
+# Used as last-resort fallback when no bot-specific configs can be loaded.
+DEFAULT_AGENT_CONFIGS = build_orchestrator_configs([])
 
 
 def _graph_state_to_agent_state(state: GraphState) -> AgentState:
@@ -57,11 +28,12 @@ def _graph_state_to_agent_state(state: GraphState) -> AgentState:
         language=state.get("language", "es"),
         language_config=state.get("language_config", {}),
         mode=state.get("intent", ""),
-        context="",
+        context=state.get("context") or "",
         response="",
         sources=[],
         metadata={},
         debug_info={},
+        bot_id=state.get("bot_id") or state.get("conversation_id"),
     )
 
 
@@ -115,13 +87,15 @@ class Orchestrator:
 
     def _build_graph(self):
         """Build and compile the LangGraph StateGraph."""
-        # Instantiate agents with their configs
-        greeting = GreetingAgent(self.llm, self.agent_configs.get("GREETING"))
-        rag = RAGAgent(self.llm, self.agent_configs.get("FACTUAL"), self.vector_store)
-        plan = PlanAgent(self.llm, self.agent_configs.get("PLAN"), self.vector_store)
-        ideate = IdeateAgent(self.llm, self.agent_configs.get("IDEATE"))
-        sensitive = SensitiveAgent(self.llm, self.agent_configs.get("SENSITIVE"))
-        fallback = FallbackAgent(self.llm, self.agent_configs.get("AMBIGUOUS"))
+        # Instantiate agents with their configs and keep them addressable.
+        self.agents = {
+            "greeting": GreetingAgent(self.llm, self.agent_configs.get("GREETING")),
+            "factual": RAGAgent(self.llm, self.agent_configs.get("FACTUAL"), self.vector_store),
+            "plan": PlanAgent(self.llm, self.agent_configs.get("PLAN"), self.vector_store),
+            "ideate": IdeateAgent(self.llm, self.agent_configs.get("IDEATE")),
+            "sensitive": SensitiveAgent(self.llm, self.agent_configs.get("SENSITIVE")),
+            "fallback": FallbackAgent(self.llm, self.agent_configs.get("AMBIGUOUS")),
+        }
 
         graph = StateGraph(GraphState)
 
@@ -130,12 +104,12 @@ class Orchestrator:
         graph.add_node("intent_routing", self._intent_routing_node)
 
         # Specialized agent nodes
-        graph.add_node("greeting_agent", make_agent_node(greeting, "GREETING"))
-        graph.add_node("rag_agent", make_agent_node(rag, "FACTUAL"))
-        graph.add_node("plan_agent", make_agent_node(plan, "PLAN"))
-        graph.add_node("ideate_agent", make_agent_node(ideate, "IDEATE"))
-        graph.add_node("sensitive_agent", make_agent_node(sensitive, "SENSITIVE"))
-        graph.add_node("fallback_agent", make_agent_node(fallback, "AMBIGUOUS"))
+        graph.add_node("greeting_agent", make_agent_node(self.agents["greeting"], "GREETING"))
+        graph.add_node("rag_agent", make_agent_node(self.agents["factual"], "FACTUAL"))
+        graph.add_node("plan_agent", make_agent_node(self.agents["plan"], "PLAN"))
+        graph.add_node("ideate_agent", make_agent_node(self.agents["ideate"], "IDEATE"))
+        graph.add_node("sensitive_agent", make_agent_node(self.agents["sensitive"], "SENSITIVE"))
+        graph.add_node("fallback_agent", make_agent_node(self.agents["fallback"], "AMBIGUOUS"))
 
         # Edges
         graph.set_entry_point("language_detection")
@@ -159,11 +133,15 @@ class Orchestrator:
 
     def _language_detection_node(self, state: GraphState) -> GraphState:
         """Detect language from user input."""
+        import re
         text = state["user_input"].lower()
-        # Simple heuristic; replace with LanguageAgent LLM call when available
-        if any(w in text for w in ["ola", "olá", "obrigado", "como vai"]):
+
+        def has_word(word, t):
+            return bool(re.search(rf"\b{re.escape(word)}\b", t))
+
+        if any(has_word(w, text) for w in ["olá", "obrigado", "como vai", "bom dia", "boa tarde", "tudo bem"]):
             state["language"] = "pt"
-        elif any(w in text for w in ["hello", "hi ", "thanks", "how are"]):
+        elif any(has_word(w, text) for w in ["hello", "hi", "thanks", "how are", "good morning"]):
             state["language"] = "en"
         else:
             state["language"] = "es"
@@ -207,6 +185,7 @@ class Orchestrator:
         user_input: str,
         user_id: Optional[str] = None,
         conversation_id: Optional[str] = None,
+        bot_id: Optional[str] = None,
         context: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Process a user query through the full LangGraph pipeline."""
@@ -216,6 +195,7 @@ class Orchestrator:
             "user_input": user_input,
             "user_id": user_id,
             "conversation_id": conversation_id,
+            "bot_id": bot_id,
             "language": "es",
             "language_config": {},
             "detected_filters": {},
@@ -225,6 +205,7 @@ class Orchestrator:
             "response": "",
             "sources": [],
             "agent_used": "",
+            "context": context,
             "debug_info": {},
             "processing_time_ms": 0,
         }
@@ -250,6 +231,10 @@ class Orchestrator:
             "processing_time_ms": result["processing_time_ms"],
             "debug_info": result["debug_info"],
         }
+
+    def get_agent(self, agent_id: str):
+        """Return an agent instance by id (greeting, factual, plan, ideate, sensitive, fallback)."""
+        return self.agents.get(agent_id)
 
     def _get_error_message(self, language: str) -> str:
         messages = {

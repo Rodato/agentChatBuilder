@@ -53,3 +53,14 @@ Thumbs.db
 data/raw/
 *.pdf
 *.docx
+
+
+#Ignore vscode AI rules
+.github/instructions/codacy.instructions.md
+
+# User-uploaded files for RAG
+uploads/
+
+# Exception to the Python lib/ rule — frontend has a TS lib directory
+!frontend/src/lib/
+!frontend/src/lib/**

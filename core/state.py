@@ -11,6 +11,7 @@ class GraphState(TypedDict):
     user_input: str
     user_id: Optional[str]
     conversation_id: Optional[str]
+    bot_id: Optional[str]
 
     # Detection results
     language: str  # es, en, pt
@@ -28,6 +29,9 @@ class GraphState(TypedDict):
 
     # Agent configurations
     agent_configs: Dict[str, Any]  # {"GREETING": {...}, "FACTUAL": {...}, ...}
+
+    # Context injected by ChatEngine (captured_vars from conversation)
+    context: Optional[str]
 
     # Debug
     debug_info: Dict[str, Any]
@@ -47,6 +51,7 @@ class AgentState:
     sources: List[Dict[str, Any]] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
     debug_info: Dict[str, Any] = field(default_factory=dict)
+    bot_id: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert state to dictionary."""

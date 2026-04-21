@@ -2,23 +2,9 @@
 
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
-from dataclasses import dataclass, field
 from loguru import logger
 
-
-@dataclass
-class AgentState:
-    """State passed to and from agents."""
-
-    user_input: str
-    language: str = "es"
-    language_config: Dict[str, Any] = field(default_factory=dict)
-    mode: str = ""  # intent type
-    context: str = ""
-    response: str = ""
-    sources: list = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    debug_info: Dict[str, Any] = field(default_factory=dict)
+from core.state import AgentState  # re-exported for legacy imports
 
 
 class BaseAgent(ABC):

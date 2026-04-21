@@ -13,6 +13,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { workflowApi, WorkflowSummary } from "@/lib/workflowApi";
 
 const MODEL_GROUPS = [
   {
@@ -85,16 +86,26 @@ function temperatureLabel(t: number): string {
 interface AgentEditPanelProps {
   agent: Agent | null;
   open: boolean;
+  botId: string;
   onSave: (updated: Agent) => void;
   onClose: () => void;
 }
 
-export function AgentEditPanel({ agent, open, onSave, onClose }: AgentEditPanelProps) {
+export function AgentEditPanel({ agent, open, botId, onSave, onClose }: AgentEditPanelProps) {
   const [draft, setDraft] = useState<Agent | null>(null);
+  const [manualWorkflows, setManualWorkflows] = useState<WorkflowSummary[]>([]);
 
   useEffect(() => {
-    if (agent) setDraft({ ...agent, tools: { ...agent.tools } });
+    if (agent) setDraft({ ...agent, tools: { ...agent.tools }, trigger_flows: [...(agent.trigger_flows ?? [])] });
   }, [agent]);
+
+  useEffect(() => {
+    if (!open) return;
+    workflowApi
+      .list(botId)
+      .then((list) => setManualWorkflows(list.filter((w) => w.trigger_type === "manual")))
+      .catch(() => setManualWorkflows([]));
+  }, [open, botId]);
 
   if (!draft) return null;
 
@@ -105,6 +116,16 @@ export function AgentEditPanel({ agent, open, onSave, onClose }: AgentEditPanelP
     setDraft((prev) =>
       prev ? { ...prev, tools: { ...prev.tools, [tool]: value } } : prev
     );
+
+  const toggleTriggerFlow = (workflowId: string, checked: boolean) => {
+    setDraft((prev) => {
+      if (!prev) return prev;
+      const current = new Set(prev.trigger_flows ?? []);
+      if (checked) current.add(workflowId);
+      else current.delete(workflowId);
+      return { ...prev, trigger_flows: Array.from(current) };
+    });
+  };
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -206,6 +227,39 @@ export function AgentEditPanel({ agent, open, onSave, onClose }: AgentEditPanelP
                 <span className="text-sm">{TOOL_LABELS[tool]}</span>
               </label>
             ))}
+
+            {draft.tools.trigger_flow && (
+              <div className="mt-3 rounded-md border border-blue-200 bg-blue-50/50 p-3 space-y-2">
+                <p className="text-sm font-medium text-blue-900">Flujos que este agente puede disparar</p>
+                <p className="text-xs text-blue-800">
+                  Marca los workflows manuales que el agente podrá iniciar. Si no marcas ninguno, el
+                  agente verá todos los workflows manuales del bot.
+                </p>
+                {manualWorkflows.length === 0 ? (
+                  <p className="text-xs italic text-blue-700">
+                    No hay workflows manuales configurados en este bot.
+                  </p>
+                ) : (
+                  <div className="space-y-1">
+                    {manualWorkflows.map((wf) => {
+                      const checked = (draft.trigger_flows ?? []).includes(wf.id);
+                      return (
+                        <label key={wf.id} className="flex items-center gap-2 cursor-pointer text-sm">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(e) => toggleTriggerFlow(wf.id, e.target.checked)}
+                            className="w-4 h-4 rounded accent-blue-600"
+                          />
+                          <span>{wf.name}</span>
+                          {!wf.enabled && <span className="text-xs text-gray-500">(deshabilitado)</span>}
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
           </section>
         </div>
 
