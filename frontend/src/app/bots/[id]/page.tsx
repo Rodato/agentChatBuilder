@@ -380,10 +380,10 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
         <Tabs defaultValue="settings" className="space-y-6">
           <TabsList>
             <TabsTrigger value="settings">Configuración</TabsTrigger>
+            <TabsTrigger value="documents">Conocimiento</TabsTrigger>
             <TabsTrigger value="workflow">Workflows</TabsTrigger>
             <TabsTrigger value="agents">Workers</TabsTrigger>
             <TabsTrigger value="map">Mapa</TabsTrigger>
-            <TabsTrigger value="documents">Conocimiento</TabsTrigger>
             <TabsTrigger value="test">Chat de prueba</TabsTrigger>
           </TabsList>
 
