@@ -119,7 +119,7 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
     setConversationId(cid);
   }, [id]);
 
-  // Kick off the conversation — runs on_start workflow if configured, else welcome_message.
+  // Kick off the conversation — runs on_start workflow if configured, else greeting worker.
   const startedRef = useRef(false);
   useEffect(() => {
     if (!conversationId || startedRef.current || chatMessages.length > 0) return;
@@ -195,7 +195,6 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
         name: bot.name,
         description: bot.description ?? undefined,
         personality: bot.personality ?? undefined,
-        welcome_message: bot.welcome_message,
         is_active: bot.is_active,
       });
       setBot(updated);
@@ -325,7 +324,7 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
   const handleAddAgent = () => {
     const newAgent: Agent = {
       id: `custom-${Date.now()}`,
-      name: "Nuevo Agente",
+      name: "Nuevo Worker",
       objective: "",
       system_prompt: "",
       model: "google/gemini-2.5-flash-lite",
@@ -381,11 +380,11 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
         <Tabs defaultValue="settings" className="space-y-6">
           <TabsList>
             <TabsTrigger value="settings">Configuración</TabsTrigger>
+            <TabsTrigger value="workflow">Workflows</TabsTrigger>
+            <TabsTrigger value="agents">Workers</TabsTrigger>
             <TabsTrigger value="map">Mapa</TabsTrigger>
-            <TabsTrigger value="agents">Especialistas</TabsTrigger>
-            <TabsTrigger value="workflow">Workflow</TabsTrigger>
-            <TabsTrigger value="documents">Documentos</TabsTrigger>
-            <TabsTrigger value="test">Chat de Prueba</TabsTrigger>
+            <TabsTrigger value="documents">Conocimiento</TabsTrigger>
+            <TabsTrigger value="test">Chat de prueba</TabsTrigger>
           </TabsList>
 
           {/* Settings Tab */}
@@ -422,15 +421,6 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
                     placeholder="Describe cómo debe comportarse el Agente..."
                   />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="welcome">Mensaje de Bienvenida</Label>
-                  <Textarea
-                    id="welcome"
-                    rows={2}
-                    value={bot.welcome_message}
-                    onChange={(e) => setBot({ ...bot, welcome_message: e.target.value })}
-                  />
-                </div>
                 <div className="flex items-center justify-between">
                   <div>
                     <Label>Estado del Agente</Label>
@@ -459,19 +449,21 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
               <CardHeader>
                 <div className="flex justify-between items-start">
                   <div>
-                    <CardTitle>Especialistas</CardTitle>
+                    <CardTitle>Workers</CardTitle>
                     <CardDescription>
-                      Configura los sub-agentes especializados que componen este Agente de IA
+                      Diseña los workers que componen este Agente de IA. Cada worker es un agente con
+                      su propio prompt, modelo y herramientas. Los workers se reusan en el Mapa para
+                      ensamblar el comportamiento del bot.
                     </CardDescription>
                   </div>
                   <Button onClick={handleAddAgent} size="sm">
-                    <Plus className="w-4 h-4 mr-1" /> Agregar Especialista
+                    <Plus className="w-4 h-4 mr-1" /> Agregar Worker
                   </Button>
                 </div>
               </CardHeader>
               <CardContent>
                 {agentsLoading ? (
-                  <p className="text-sm text-gray-500">Cargando especialistas...</p>
+                  <p className="text-sm text-gray-500">Cargando workers...</p>
                 ) : (
                   <div className="space-y-3">
                     {agents.map((agent) => (
@@ -501,14 +493,14 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
               <DialogContent>
                 <DialogHeader>
                   <DialogTitle>
-                    {deleteAgentBlockers ? "No se puede eliminar todavía" : "Eliminar especialista"}
+                    {deleteAgentBlockers ? "No se puede eliminar todavía" : "Eliminar worker"}
                   </DialogTitle>
                   <DialogDescription>
                     {deleteAgentBlockers ? (
                       <>
                         <span className="font-medium text-gray-900">{deleteAgentTarget?.name}</span> está siendo
-                        usado por uno o más workflows. Edita esos workflows primero (cambia el nodo `agent` por
-                        otro especialista o elimínalo) y vuelve a intentarlo.
+                        usado por uno o más workflows. Edita esos workflows primero (cambia el nodo agente por
+                        otro worker o elimínalo) y vuelve a intentarlo.
                       </>
                     ) : (
                       <>
@@ -574,8 +566,8 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
               <CardHeader>
                 <div className="flex justify-between items-start">
                   <div>
-                    <CardTitle>Base de Conocimiento</CardTitle>
-                    <CardDescription>Sube documentos para respuestas con RAG</CardDescription>
+                    <CardTitle>Conocimiento</CardTitle>
+                    <CardDescription>Sube documentos para que tus workers respondan con base en ellos (RAG)</CardDescription>
                   </div>
                   <Button onClick={handleUploadClick} disabled={uploadingDoc}>
                     {uploadingDoc ? "Subiendo..." : "+ Subir Documento"}

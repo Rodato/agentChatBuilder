@@ -25,26 +25,25 @@ export interface Bot {
   name: string;
   description: string | null;
   personality: string | null;
-  welcome_message: string;
   is_active: boolean;
   message_count: number;
   workflow_mode?: "free" | "workflow";
   created_at: string;
   updated_at: string;
+  /** @deprecated The kickoff message comes from on_start workflow or greeting worker. */
+  welcome_message?: string;
 }
 
 export interface BotCreate {
   name: string;
   description?: string;
   personality?: string;
-  welcome_message?: string;
 }
 
 export interface BotUpdate {
   name?: string;
   description?: string;
   personality?: string;
-  welcome_message?: string;
   is_active?: boolean;
 }
 
@@ -181,7 +180,7 @@ export const agentsApi = {
     if (res.status === 409 && body?.detail?.blocked_by) {
       throw new AgentDeleteBlockedError(
         body.detail.blocked_by,
-        body.detail.message || "El especialista está siendo usado por uno o más workflows."
+        body.detail.message || "El worker está siendo usado por uno o más workflows."
       );
     }
     throw new Error(body?.detail || `HTTP ${res.status}`);

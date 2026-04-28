@@ -23,9 +23,9 @@ export default function Home() {
             <span className="text-blue-600">Sin Código</span>
           </h2>
           <p className="text-xl text-gray-600 mb-8 max-w-2xl mx-auto">
-            Construye Agentes de IA conversacionales con RAG, especialistas por
-            intención y despliegue multicanal. Conéctalos a WhatsApp, Telegram o
-            incrústalos en tu sitio web.
+            Construye Agentes de IA conversacionales con RAG, workers
+            especializados y despliegue multicanal. Conéctalos a WhatsApp,
+            Telegram o incrústalos en tu sitio web.
           </p>
           <div className="flex gap-4 justify-center">
             <Link href="/dashboard">
@@ -43,9 +43,9 @@ export default function Home() {
               </p>
             </div>
             <div className="p-6 border rounded-lg">
-              <h3 className="text-lg font-semibold mb-2">Especialistas por intención</h3>
+              <h3 className="text-lg font-semibold mb-2">Workers por intención</h3>
               <p className="text-gray-600">
-                Configura sub-agentes distintos para cada intención: informativo,
+                Diseña workers distintos para cada intención: informativo,
                 creativo, planificación y más.
               </p>
             </div>

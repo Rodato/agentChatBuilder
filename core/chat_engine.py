@@ -56,12 +56,12 @@ class ChatEngine:
                 self._push_frame(conv, on_start_id)
                 return self._run_current_frame(bot_id=bot_id, conv=conv, user_input=None, started_at=start_time)
 
-        # No onboarding → use bot welcome_message.
-        welcome = self._bot_welcome_message(bot_id)
+        # No onboarding workflow → try the greeting worker, else generic fallback.
+        welcome, agent_used = self._compute_welcome(bot_id)
         self._persist(conv)
         return {
             "response": welcome,
-            "agent_used": "welcome",
+            "agent_used": agent_used,
             "intent": None,
             "language": "es",
             "sources": [],
@@ -253,20 +253,37 @@ class ChatEngine:
         except Exception as e:
             logger.warning(f"Failed to persist conversation {conv.get('id')}: {e}")
 
-    def _bot_welcome_message(self, bot_id: str) -> str:
-        try:
-            row = (
-                get_supabase()
-                .table("bots")
-                .select("welcome_message")
-                .eq("id", bot_id)
-                .single()
-                .execute()
-                .data
-            )
-            return (row or {}).get("welcome_message") or "Hola! ¿En qué puedo ayudarte?"
-        except Exception:
-            return "Hola! ¿En qué puedo ayudarte?"
+    # Precedence for the kickoff message of a brand-new conversation:
+    #   1. (caller) workflow on_start enabled → executed before reaching this method
+    #   2. greeting worker enabled → invoke it here with a synthetic prompt
+    #   3. generic localized hardcoded fallback
+    _GENERIC_WELCOME = {
+        "es": "¡Hola! ¿En qué puedo ayudarte?",
+        "en": "Hi! How can I help you?",
+        "pt": "Olá! Como posso ajudar?",
+    }
+
+    def _compute_welcome(self, bot_id: str) -> tuple[str, str]:
+        """Returns (response_text, agent_used)."""
+        greeting_agent = self.orch.get_agent("greeting") if self.orch else None
+        greeting_enabled = bool(
+            self.orch
+            and (self.orch.configs_by_agent_id.get("greeting") or {}).get("enabled")
+        )
+        if greeting_agent and greeting_enabled:
+            try:
+                state = AgentState(
+                    user_input="",
+                    language="es",
+                    mode="WELCOME",
+                    bot_id=bot_id,
+                )
+                state = greeting_agent.process(state)
+                if (state.response or "").strip():
+                    return state.response.strip(), state.metadata.get("agent_used", "greeting")
+            except Exception as e:
+                logger.warning(f"[chat_engine] greeting worker failed for kickoff {bot_id}: {e}")
+        return self._GENERIC_WELCOME["es"], "welcome"
 
     # ── Workflow lookups ───────────────────────────────────────────────────
 

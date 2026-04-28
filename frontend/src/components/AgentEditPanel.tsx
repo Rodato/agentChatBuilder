@@ -158,7 +158,7 @@ export function AgentEditPanel({ agent, open, botId, onSave, onClose }: AgentEdi
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Editar Especialista</DialogTitle>
+          <DialogTitle>Editar Worker</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-6 py-2">
@@ -245,7 +245,7 @@ export function AgentEditPanel({ agent, open, botId, onSave, onClose }: AgentEdi
                 Se activa para estos intents
               </h3>
               <p className="text-xs text-gray-500">
-                Marca cuándo el router agéntico debe preferir este especialista sobre el builtin.
+                Marca cuándo el router agéntico debe preferir este worker sobre el builtin.
                 Si no marcas ninguno, solo se invoca desde un nodo de Workflow.
               </p>
               <div className="space-y-1.5">

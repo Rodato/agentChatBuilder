@@ -48,7 +48,7 @@ export default function NewBotPage() {
           <CardHeader>
             <CardTitle className="text-2xl">Crear un nuevo Agente de IA</CardTitle>
             <CardDescription>
-              Configura los ajustes básicos de tu Agente. Podrás agregar documentos y ajustar los especialistas después.
+              Configura los ajustes básicos de tu Agente. Podrás agregar conocimiento y diseñar los workers después.
             </CardDescription>
           </CardHeader>
           <form onSubmit={handleCreate}>
@@ -96,7 +96,7 @@ export default function NewBotPage() {
                 <h4 className="font-medium text-blue-900 mb-2">¿Qué sigue?</h4>
                 <ul className="text-sm text-blue-800 space-y-1">
                   <li>• Sube documentos para construir tu base de conocimiento</li>
-                  <li>• Configura qué especialistas están activos</li>
+                  <li>• Configura qué workers están activos</li>
                   <li>• Prueba tu Agente en el chat</li>
                   <li>• Conéctalo a WhatsApp, Telegram o incorpóralo a tu web</li>
                 </ul>

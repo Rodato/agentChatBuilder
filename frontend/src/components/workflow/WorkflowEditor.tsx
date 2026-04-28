@@ -456,7 +456,7 @@ function NodeInspector({
       {node.type === "agent" && (
         <>
           <div className="space-y-1">
-            <Label>Especialista</Label>
+            <Label>Worker</Label>
             <select
               value={data.agent_id ?? "factual"}
               onChange={(e) => onChange({ agent_id: e.target.value })}
@@ -478,7 +478,7 @@ function NodeInspector({
             </select>
             {data.agent_id && !agents.some((a) => a.agent_id === data.agent_id) && (
               <p className="text-xs text-red-600">
-                ⚠️ Este especialista ya no existe. Elige otro o el workflow fallará en runtime.
+                ⚠️ Este worker ya no existe. Elige otro o el workflow fallará en runtime.
               </p>
             )}
           </div>
