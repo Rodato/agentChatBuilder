@@ -60,6 +60,8 @@ function rowToAgent(row: AgentRow): Agent {
     is_custom: row.is_custom,
     trigger_flows: row.metadata?.trigger_flows ?? [],
     intents: (row.intents ?? []) as IntentKey[],
+    kind: row.kind ?? "agent",
+    graph_definition: row.graph_definition ?? null,
   };
 }
 
@@ -251,6 +253,8 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
           enabled: updated.enabled,
           intents: updated.intents,
           metadata: { trigger_flows: updated.trigger_flows ?? [] },
+          kind: updated.kind,
+          graph_definition: updated.graph_definition ?? null,
         });
         setAgents((prev) => [...prev, rowToAgent(created)]);
       } catch (e) {
@@ -270,6 +274,8 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
       enabled: updated.enabled,
       intents: updated.is_custom ? updated.intents : undefined,
       metadata: { trigger_flows: updated.trigger_flows ?? [] },
+      kind: updated.is_custom ? updated.kind : undefined,
+      graph_definition: updated.is_custom ? (updated.graph_definition ?? null) : undefined,
     });
   };
 

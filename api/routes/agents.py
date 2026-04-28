@@ -29,6 +29,18 @@ def _validate_intents(values: Optional[List[str]]) -> List[str]:
     return cleaned
 
 
+VALID_KINDS = {"agent", "graph"}
+
+
+def _validate_kind(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return value
+    v = value.strip().lower()
+    if v not in VALID_KINDS:
+        raise ValueError(f"kind inválido: {value}. Permitidos: {sorted(VALID_KINDS)}")
+    return v
+
+
 class AgentConfig(BaseModel):
     agent_id: str
     name: str
@@ -42,11 +54,18 @@ class AgentConfig(BaseModel):
     position: int = 0
     intents: Optional[List[str]] = None
     metadata: Optional[Dict[str, Any]] = None
+    kind: Optional[str] = "agent"
+    graph_definition: Optional[Dict[str, Any]] = None
 
     @field_validator("intents")
     @classmethod
     def _check_intents(cls, v):
         return _validate_intents(v)
+
+    @field_validator("kind")
+    @classmethod
+    def _check_kind(cls, v):
+        return _validate_kind(v)
 
 
 class AgentUpdate(BaseModel):
@@ -60,6 +79,8 @@ class AgentUpdate(BaseModel):
     position: Optional[int] = None
     metadata: Optional[Dict[str, Any]] = None
     intents: Optional[List[str]] = None
+    kind: Optional[str] = None
+    graph_definition: Optional[Dict[str, Any]] = None
 
     @field_validator("intents")
     @classmethod
@@ -67,6 +88,11 @@ class AgentUpdate(BaseModel):
         if v is None:
             return v
         return _validate_intents(v)
+
+    @field_validator("kind")
+    @classmethod
+    def _check_kind(cls, v):
+        return _validate_kind(v)
 
 
 def seed_default_agents(bot_id: str) -> None:
@@ -156,8 +182,8 @@ async def update_agent(bot_id: str, agent_id: str, patch: AgentUpdate):
         if not data:
             raise HTTPException(status_code=400, detail="Sin campos para actualizar.")
 
-        # `intents` only applies to custom agents — silently strip from builtins.
-        if "intents" in data:
+        # `intents`, `kind`, `graph_definition` solo aplican a custom agents.
+        if any(k in data for k in ("intents", "kind", "graph_definition")):
             current = (
                 get_supabase()
                 .table("bot_agents")
@@ -170,6 +196,8 @@ async def update_agent(bot_id: str, agent_id: str, patch: AgentUpdate):
             ) or {}
             if not current.get("is_custom"):
                 data.pop("intents", None)
+                data.pop("kind", None)
+                data.pop("graph_definition", None)
 
         result = (
             get_supabase()

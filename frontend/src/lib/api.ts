@@ -77,6 +77,39 @@ export interface AgentMetadata {
 
 export type IntentKey = "GREETING" | "FACTUAL" | "PLAN" | "IDEATE" | "SENSITIVE" | "AMBIGUOUS";
 
+export type WorkerKind = "agent" | "graph";
+
+export interface GraphNodeData {
+  label?: string;
+  type?: "orchestrator" | "subagent" | "synthesizer";
+  system_prompt?: string;
+  model?: string;
+  temperature?: number;
+  tools?: Partial<AgentTools>;
+  inputs?: string[]; // explicit upstream node ids for synthesizer
+}
+
+export interface GraphNode {
+  id: string;
+  type: "orchestrator" | "subagent" | "synthesizer";
+  position: { x: number; y: number };
+  data: GraphNodeData;
+}
+
+export interface GraphEdge {
+  id: string;
+  source: string;
+  target: string;
+  label?: string;
+}
+
+export interface GraphDefinition {
+  version?: number;
+  entry_node_id: string | null;
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+}
+
 export interface AgentRow {
   bot_id: string;
   agent_id: string;
@@ -91,6 +124,8 @@ export interface AgentRow {
   position: number;
   intents?: IntentKey[];
   metadata?: AgentMetadata;
+  kind?: WorkerKind;
+  graph_definition?: GraphDefinition | null;
 }
 
 export interface AgentPatch {
@@ -104,6 +139,8 @@ export interface AgentPatch {
   position?: number;
   intents?: IntentKey[];
   metadata?: AgentMetadata;
+  kind?: WorkerKind;
+  graph_definition?: GraphDefinition | null;
 }
 
 export interface AgentCreatePayload extends AgentPatch {

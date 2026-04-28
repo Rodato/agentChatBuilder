@@ -192,6 +192,8 @@ def _row_to_config(
         "enabled": bool(row.get("enabled", True)),
         "position": int(row.get("position", 0)),
         "metadata": metadata,
+        "kind": (row.get("kind") or "agent") if not force_builtin else "agent",
+        "graph_definition": row.get("graph_definition") if not force_builtin else None,
     }
 
 

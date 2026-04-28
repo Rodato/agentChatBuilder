@@ -14,7 +14,8 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { workflowApi, WorkflowSummary } from "@/lib/workflowApi";
-import { IntentKey } from "@/lib/api";
+import { IntentKey, GraphDefinition, WorkerKind } from "@/lib/api";
+import { GraphEditor } from "@/components/worker/GraphEditor";
 
 const MODEL_GROUPS = [
   {
@@ -112,6 +113,8 @@ export function AgentEditPanel({ agent, open, botId, onSave, onClose }: AgentEdi
         tools: { ...agent.tools },
         trigger_flows: [...(agent.trigger_flows ?? [])],
         intents: [...(agent.intents ?? [])],
+        kind: agent.kind ?? "agent",
+        graph_definition: agent.graph_definition ?? null,
       });
     }
   }, [agent]);
@@ -154,20 +157,70 @@ export function AgentEditPanel({ agent, open, botId, onSave, onClose }: AgentEdi
     });
   };
 
+  const setKind = (kind: WorkerKind) =>
+    setDraft((prev) => (prev ? { ...prev, kind } : prev));
+
+  const setGraphDefinition = (def: GraphDefinition) =>
+    setDraft((prev) => (prev ? { ...prev, graph_definition: def } : prev));
+
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+      <DialogContent className={`${draft.kind === "graph" ? "max-w-5xl" : "max-w-lg"} max-h-[90vh] overflow-y-auto`}>
         <DialogHeader>
           <DialogTitle>Editar Worker</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-6 py-2">
-          {/* BRAIN */}
-          <section className="space-y-4">
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
-              Cerebro (Brain)
-            </h3>
+          {/* TIPO DE WORKER — solo para customs */}
+          {draft.is_custom && (
+            <section className="space-y-2">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
+                Tipo de Worker
+              </h3>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setKind("agent")}
+                  className={`flex-1 rounded-md border px-3 py-2 text-sm transition ${
+                    draft.kind !== "graph"
+                      ? "border-blue-500 bg-blue-50 text-blue-900 font-medium"
+                      : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+                  }`}
+                >
+                  Agente único
+                  <div className="text-xs font-normal mt-0.5">Un LLM con prompt y tools.</div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setKind("graph")}
+                  className={`flex-1 rounded-md border px-3 py-2 text-sm transition ${
+                    draft.kind === "graph"
+                      ? "border-purple-500 bg-purple-50 text-purple-900 font-medium"
+                      : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+                  }`}
+                >
+                  Grafo de sub-agentes
+                  <div className="text-xs font-normal mt-0.5">Orquestador + workers internos.</div>
+                </button>
+              </div>
+            </section>
+          )}
 
+          {/* GRAFO — editor visual cuando kind=graph */}
+          {draft.is_custom && draft.kind === "graph" && (
+            <section className="space-y-2">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
+                Diseño del grafo
+              </h3>
+              <GraphEditor
+                value={draft.graph_definition}
+                onChange={setGraphDefinition}
+              />
+            </section>
+          )}
+
+          {/* NAME — siempre visible (también para grafos) */}
+          <section className="space-y-2">
             <div className="space-y-1">
               <Label>Nombre</Label>
               <Input
@@ -176,15 +229,22 @@ export function AgentEditPanel({ agent, open, botId, onSave, onClose }: AgentEdi
                 onChange={(e) => updateField("name", e.target.value)}
               />
             </div>
-
             <div className="space-y-1">
               <Label>Objetivo</Label>
               <Input
                 value={draft.objective}
                 onChange={(e) => updateField("objective", e.target.value)}
-                placeholder="Describe brevemente el objetivo de este agente"
+                placeholder="Describe brevemente el objetivo de este worker"
               />
             </div>
+          </section>
+
+          {/* BRAIN — solo si NO es grafo (en grafos cada sub-nodo tiene su propio cerebro) */}
+          {draft.kind !== "graph" && (
+          <section className="space-y-4">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
+              Cerebro (Brain)
+            </h3>
 
             <div className="space-y-1">
               <Label>Instrucciones (System Prompt)</Label>
@@ -237,6 +297,7 @@ export function AgentEditPanel({ agent, open, botId, onSave, onClose }: AgentEdi
               </div>
             </div>
           </section>
+          )}
 
           {/* INTENTS — solo para custom */}
           {draft.is_custom && (

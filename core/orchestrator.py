@@ -22,6 +22,7 @@ from agents.ideate_agent import IdeateAgent
 from agents.sensitive_agent import SensitiveAgent
 from agents.fallback_agent import FallbackAgent
 from agents.generic_agent import GenericAgent
+from agents.graph_worker import GraphWorker
 from llm.multi_llm_client import MultiLLMClient
 
 
@@ -116,6 +117,14 @@ class Orchestrator:
         cls = _BUILTIN_CLASSES.get(agent_id)
         if cls is not None:
             return cls(self.llm, config, self.vector_store)
+        # Custom workers: kind="graph" → GraphWorker; otherwise GenericAgent.
+        if (config or {}).get("kind") == "graph":
+            return GraphWorker(
+                name=config.get("name") or agent_id,
+                llm_client=self.llm,
+                agent_config=config,
+                vector_store=self.vector_store,
+            )
         return GenericAgent(
             name=config.get("name") or agent_id,
             llm_client=self.llm,

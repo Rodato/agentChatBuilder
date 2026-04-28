@@ -5,7 +5,7 @@ import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Pencil, Trash2 } from "lucide-react";
-import { IntentKey } from "@/lib/api";
+import { IntentKey, GraphDefinition, WorkerKind } from "@/lib/api";
 
 export interface Agent {
   id: string;
@@ -23,8 +23,10 @@ export interface Agent {
   };
   enabled: boolean;
   is_custom: boolean;
-  trigger_flows?: string[]; // workflow ids seleccionados (si vacío = todos los manuales)
-  intents?: IntentKey[]; // intents que maneja un custom (vacío = solo via Workflow)
+  trigger_flows?: string[];
+  intents?: IntentKey[];
+  kind?: WorkerKind;
+  graph_definition?: GraphDefinition | null;
 }
 
 const TOOL_LABELS: Record<string, string> = {
@@ -70,6 +72,9 @@ function AgentCardImpl({ agent, onToggle, onEdit, onDelete }: AgentCardProps) {
             <h4 className="font-medium">{agent.name}</h4>
             {agent.is_custom && (
               <Badge variant="secondary" className="text-xs">Personalizado</Badge>
+            )}
+            {agent.kind === "graph" && (
+              <Badge variant="outline" className="text-xs border-purple-400 text-purple-700">Grafo</Badge>
             )}
             {agent.is_custom && intents.length > 0 && (
               <span className="text-xs text-purple-700">
