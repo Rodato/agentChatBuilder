@@ -1,7 +1,8 @@
 """Vector store using MongoDB with cosine similarity search."""
 
 import os
-from typing import List, Dict, Any, Optional
+import re
+from typing import List, Dict, Any, Optional, Set
 from loguru import logger
 
 import numpy as np
@@ -14,8 +15,17 @@ except ImportError:
 from .embeddings import EmbeddingClient
 
 
+_TOKEN_RE = re.compile(r"[\wáéíóúñü]+", re.IGNORECASE)
+
+
+def _tokenize(text: str) -> Set[str]:
+    return {t.lower() for t in _TOKEN_RE.findall(text or "") if len(t) > 2}
+
+
 class VectorStore:
     COLLECTION = "doc_chunks"
+    KEYWORD_BOOST = 0.05  # added to cosine score for each matched keyword (capped)
+    MAX_KEYWORD_BOOST = 0.15
 
     def __init__(self, uri: Optional[str] = None, db_name: Optional[str] = None):
         self.uri = uri or os.getenv("MONGODB_URI")
@@ -69,6 +79,8 @@ class VectorStore:
                     "doc_id": 1,
                     "chunk_index": 1,
                     "doc_name": 1,
+                    "doc_summary": 1,
+                    "doc_keywords": 1,
                     "page": 1,
                 },
             )
@@ -81,31 +93,41 @@ class VectorStore:
             logger.info("No chunks found in vector store")
             return []
 
-        # Cosine similarity
+        query_tokens = _tokenize(query)
+
+        # Cosine similarity + keyword overlap boost
         scores = []
         for chunk in chunks:
             emb = chunk.get("embedding")
             if not emb:
                 continue
             vec = np.array(emb)
-            score = float(np.dot(query_vec, vec) / (np.linalg.norm(query_vec) * np.linalg.norm(vec) + 1e-10))
-            scores.append((score, chunk))
+            cosine = float(np.dot(query_vec, vec) / (np.linalg.norm(query_vec) * np.linalg.norm(vec) + 1e-10))
+            kw_list = chunk.get("doc_keywords") or []
+            matches = sum(1 for kw in kw_list if kw and kw.lower() in query_tokens)
+            boost = min(self.KEYWORD_BOOST * matches, self.MAX_KEYWORD_BOOST)
+            scores.append((cosine + boost, cosine, matches, chunk))
 
-        # Sort by score, return top_k above threshold
+        # Sort by boosted score, return top_k above threshold (compared on cosine)
         scores.sort(key=lambda x: x[0], reverse=True)
         results = [
             {
                 "content": c["content"],
-                "score": s,
+                "score": s_boosted,
+                "cosine": s_cos,
+                "keyword_matches": kw_matches,
                 "doc_id": c.get("doc_id"),
                 "doc_name": c.get("doc_name"),
+                "doc_summary": c.get("doc_summary"),
                 "page": c.get("page"),
             }
-            for s, c in scores[:top_k]
-            if s >= min_score
+            for s_boosted, s_cos, kw_matches, c in scores[:top_k]
+            if s_cos >= min_score or kw_matches > 0
         ]
 
-        logger.info(f"VectorStore: {len(results)} results (query='{query[:40]}', bot_id={bot_id})")
+        logger.info(
+            f"VectorStore: {len(results)} results (query='{query[:40]}', bot_id={bot_id}, kw_tokens={len(query_tokens)})"
+        )
         return results
 
     def close(self):

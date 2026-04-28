@@ -160,11 +160,13 @@ from api.routes.bots import router as bots_router
 from api.routes.agents import router as agents_router
 from api.routes.documents import router as documents_router
 from api.routes.workflows import router as workflows_router
+from api.routes.bot_map import router as bot_map_router
 
 app.include_router(bots_router, prefix="/api/bots", tags=["bots"])
 app.include_router(agents_router, prefix="/api/bots", tags=["agents"])
 app.include_router(documents_router, prefix="/api/bots", tags=["documents"])
 app.include_router(workflows_router, prefix="/api/bots", tags=["workflows"])
+app.include_router(bot_map_router, prefix="/api/bots", tags=["bot-map"])
 
 
 if __name__ == "__main__":

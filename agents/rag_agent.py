@@ -47,7 +47,25 @@ class RAGAgent(BaseAgent):
                     state.user_input, top_k=5, bot_id=state.bot_id
                 )
                 if results:
-                    rag_context = "\n\n".join(r.get("content", "") for r in results)
+                    # Prepend each chunk with its source label and (when present) the
+                    # doc-level summary, so the LLM has high-signal framing per snippet.
+                    seen_summaries: set[str] = set()
+                    blocks: list[str] = []
+                    for r in results:
+                        header_parts = []
+                        if r.get("doc_name"):
+                            header_parts.append(r["doc_name"])
+                        if r.get("page") is not None:
+                            header_parts.append(f"p.{r['page']}")
+                        header = f"[{' · '.join(header_parts)}]" if header_parts else ""
+                        block = ""
+                        summary = r.get("doc_summary")
+                        if summary and summary not in seen_summaries:
+                            block += f"Resumen del documento: {summary}\n"
+                            seen_summaries.add(summary)
+                        block += f"{header}\n{r.get('content', '')}".strip()
+                        blocks.append(block)
+                    rag_context = "\n\n---\n\n".join(blocks)
                     sources = results
             except Exception as e:
                 logger.warning(f"RAG search failed: {e}")

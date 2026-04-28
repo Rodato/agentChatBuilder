@@ -13,6 +13,8 @@ import { Switch } from "@/components/ui/switch";
 import { Plus } from "lucide-react";
 import { AgentCard, Agent } from "@/components/AgentCard";
 import { AgentEditPanel } from "@/components/AgentEditPanel";
+import { BotMapView } from "@/components/BotMap";
+import { DocumentMetadataDialog } from "@/components/DocumentMetadataDialog";
 import { WorkflowEditor } from "@/components/workflow/WorkflowEditor";
 import { WorkflowList } from "@/components/workflow/WorkflowList";
 import {
@@ -82,6 +84,7 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
   const [conversationId, setConversationId] = useState<string>("");
   const [saving, setSaving] = useState(false);
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
+  const [editingDoc, setEditingDoc] = useState<Document | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -311,6 +314,7 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
         <Tabs defaultValue="settings" className="space-y-6">
           <TabsList>
             <TabsTrigger value="settings">Configuración</TabsTrigger>
+            <TabsTrigger value="map">Mapa</TabsTrigger>
             <TabsTrigger value="agents">Agentes</TabsTrigger>
             <TabsTrigger value="workflow">Workflow</TabsTrigger>
             <TabsTrigger value="documents">Documentos</TabsTrigger>
@@ -375,6 +379,11 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
                 </Button>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          {/* Bot Map Tab */}
+          <TabsContent value="map">
+            <BotMapView botId={id} />
           </TabsContent>
 
           {/* Agents Tab */}
@@ -467,41 +476,76 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
                     {documents.map((doc) => (
                       <div
                         key={doc.id}
-                        className="flex items-center justify-between p-4 border rounded-lg"
+                        className="p-4 border rounded-lg space-y-2"
                       >
-                        <div className="flex items-center gap-3">
-                          <div className="text-2xl">📄</div>
-                          <div>
-                            <h4 className="font-medium">{doc.name}</h4>
-                            <p className="text-sm text-gray-500">
-                              {doc.status === "ready"
-                                ? `Listo · ${(doc.file_size / 1024).toFixed(1)} KB`
-                                : `Procesando · ${(doc.file_size / 1024).toFixed(1)} KB`}
-                            </p>
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="text-2xl">📄</div>
+                            <div className="min-w-0">
+                              <h4 className="font-medium truncate">{doc.name}</h4>
+                              <p className="text-sm text-gray-500">
+                                {doc.status === "ready"
+                                  ? `Listo · ${(doc.file_size / 1024).toFixed(1)} KB`
+                                  : `Procesando · ${(doc.file_size / 1024).toFixed(1)} KB`}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <Badge
+                              variant={
+                                doc.status === "ready"
+                                  ? "default"
+                                  : doc.status === "error"
+                                  ? "destructive"
+                                  : "secondary"
+                              }
+                            >
+                              {doc.status === "ready" ? "Listo" : doc.status === "error" ? "Error" : "Procesando..."}
+                            </Badge>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setEditingDoc(doc)}
+                              disabled={doc.status === "processing"}
+                            >
+                              Metadata
+                            </Button>
+                            <Button variant="ghost" size="sm" onClick={() => handleDeleteDoc(doc.id)}>
+                              Eliminar
+                            </Button>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <Badge
-                            variant={
-                              doc.status === "ready"
-                                ? "default"
-                                : doc.status === "error"
-                                ? "destructive"
-                                : "secondary"
-                            }
-                          >
-                            {doc.status === "ready" ? "Listo" : doc.status === "error" ? "Error" : "Procesando..."}
-                          </Badge>
-                          <Button variant="ghost" size="sm" onClick={() => handleDeleteDoc(doc.id)}>
-                            Eliminar
-                          </Button>
-                        </div>
+                        {(doc.summary || (doc.keywords && doc.keywords.length > 0)) && (
+                          <div className="pl-11 space-y-1.5">
+                            {doc.summary && (
+                              <p className="text-sm text-gray-600 line-clamp-2">{doc.summary}</p>
+                            )}
+                            {doc.keywords && doc.keywords.length > 0 && (
+                              <div className="flex flex-wrap gap-1">
+                                {doc.keywords.map((kw) => (
+                                  <Badge key={kw} variant="secondary" className="text-xs">
+                                    {kw}
+                                  </Badge>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
                 )}
               </CardContent>
             </Card>
+            <DocumentMetadataDialog
+              open={!!editingDoc}
+              onClose={() => setEditingDoc(null)}
+              botId={id}
+              doc={editingDoc}
+              onSaved={(updated) =>
+                setDocuments((prev) => prev.map((d) => (d.id === updated.id ? updated : d)))
+              }
+            />
           </TabsContent>
 
           {/* Test Chat Tab */}

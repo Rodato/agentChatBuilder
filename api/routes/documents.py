@@ -3,8 +3,10 @@
 import os
 import shutil
 from datetime import datetime, timezone
+from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, UploadFile, File, BackgroundTasks
+from pydantic import BaseModel, Field
 from loguru import logger
 
 from db import get_supabase
@@ -19,7 +21,39 @@ ALLOWED_EXTENSIONS = {".pdf", ".txt", ".docx", ".md"}
 _embedding_client = EmbeddingClient()
 
 
-def _process_document(doc_id: str, bot_id: str, doc_name: str, file_path: str):
+class DocumentMetadataPatch(BaseModel):
+    summary: Optional[str] = Field(default=None, max_length=2000)
+    keywords: Optional[List[str]] = None
+
+
+def _normalize_keywords(keywords: Optional[List[str]]) -> List[str]:
+    if not keywords:
+        return []
+    seen: set[str] = set()
+    out: List[str] = []
+    for k in keywords:
+        if not isinstance(k, str):
+            continue
+        k = k.strip().lower()
+        if not k or k in seen:
+            continue
+        if len(k) > 60:
+            k = k[:60]
+        seen.add(k)
+        out.append(k)
+        if len(out) >= 30:
+            break
+    return out
+
+
+def _process_document(
+    doc_id: str,
+    bot_id: str,
+    doc_name: str,
+    file_path: str,
+    summary: Optional[str] = None,
+    keywords: Optional[List[str]] = None,
+):
     """Background task: extract → chunk → embed → store in MongoDB."""
     sb = get_supabase()
 
@@ -43,6 +77,7 @@ def _process_document(doc_id: str, bot_id: str, doc_name: str, file_path: str):
         col.delete_many({"doc_id": doc_id})
 
         processed_at = datetime.now(timezone.utc).isoformat()
+        normalized_keywords = _normalize_keywords(keywords)
         docs_to_insert = [
             {
                 "doc_id": doc_id,
@@ -51,6 +86,8 @@ def _process_document(doc_id: str, bot_id: str, doc_name: str, file_path: str):
                 "content": chunk["content"],
                 "embedding": embedding,
                 "doc_name": doc_name,
+                "doc_summary": summary or None,
+                "doc_keywords": normalized_keywords,
                 "page": chunk.get("page"),
                 "processed_at": processed_at,
             }
@@ -66,6 +103,28 @@ def _process_document(doc_id: str, bot_id: str, doc_name: str, file_path: str):
     except Exception as e:
         logger.exception(f"[RAG] Error procesando {doc_id}: {e}")
         sb.table("documents").update({"status": "error"}).eq("id", doc_id).execute()
+
+
+def _sync_chunk_metadata(doc_id: str, summary: Optional[str], keywords: Optional[List[str]]) -> None:
+    """Update doc_summary / doc_keywords on existing chunks without re-embedding."""
+    try:
+        from pymongo import MongoClient
+        from core.config import settings
+
+        update: dict = {}
+        if summary is not None:
+            update["doc_summary"] = summary or None
+        if keywords is not None:
+            update["doc_keywords"] = _normalize_keywords(keywords)
+        if not update:
+            return
+        mongo = MongoClient(settings.mongodb_uri)
+        mongo[settings.mongodb_db_name]["doc_chunks"].update_many(
+            {"doc_id": doc_id}, {"$set": update}
+        )
+        mongo.close()
+    except Exception as e:
+        logger.warning(f"Could not sync chunk metadata for {doc_id}: {e}")
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -84,7 +143,7 @@ async def list_documents(bot_id: str):
         return result.data
     except Exception as e:
         logger.error(f"Error listing documents for bot {bot_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="No se pudieron cargar los documentos.")
 
 
 @router.post("/{bot_id}/documents", status_code=201)
@@ -112,7 +171,7 @@ async def upload_document(
         doc = result.data[0]
     except Exception as e:
         logger.error(f"Error saving document metadata: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="No se pudo guardar el documento.")
 
     # Save file to disk
     bot_dir = os.path.join(UPLOAD_DIR, bot_id)
@@ -126,9 +185,45 @@ async def upload_document(
         raise HTTPException(status_code=500, detail="Error al guardar el archivo.")
 
     # Trigger RAG processing in background
-    background_tasks.add_task(_process_document, doc["id"], bot_id, file.filename, file_path)
+    background_tasks.add_task(
+        _process_document,
+        doc["id"],
+        bot_id,
+        file.filename,
+        file_path,
+        doc.get("summary"),
+        doc.get("keywords") or [],
+    )
 
     return doc
+
+
+@router.patch("/{bot_id}/documents/{doc_id}")
+async def update_document_metadata(bot_id: str, doc_id: str, body: DocumentMetadataPatch):
+    if body.summary is None and body.keywords is None:
+        raise HTTPException(status_code=400, detail="Sin campos para actualizar.")
+    payload: dict = {}
+    if body.summary is not None:
+        payload["summary"] = body.summary.strip() or None
+    if body.keywords is not None:
+        payload["keywords"] = _normalize_keywords(body.keywords)
+    try:
+        result = (
+            get_supabase()
+            .table("documents")
+            .update(payload)
+            .eq("id", doc_id)
+            .eq("bot_id", bot_id)
+            .execute()
+        )
+    except Exception as e:
+        logger.exception(f"Error updating document metadata {doc_id}: {e}")
+        raise HTTPException(status_code=500, detail="No se pudo actualizar el documento.")
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Documento no encontrado.")
+
+    _sync_chunk_metadata(doc_id, payload.get("summary"), payload.get("keywords"))
+    return result.data[0]
 
 
 @router.delete("/{bot_id}/documents/{doc_id}", status_code=204)
@@ -147,4 +242,4 @@ async def delete_document(bot_id: str, doc_id: str):
         get_supabase().table("documents").delete().eq("id", doc_id).eq("bot_id", bot_id).execute()
     except Exception as e:
         logger.error(f"Error deleting document {doc_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="No se pudo eliminar el documento.")

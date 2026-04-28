@@ -54,7 +54,14 @@ export interface Document {
   name: string;
   status: string;
   file_size: number;
+  summary?: string | null;
+  keywords?: string[];
   created_at: string;
+}
+
+export interface DocumentMetadataPatch {
+  summary?: string | null;
+  keywords?: string[];
 }
 
 export interface AgentTools {
@@ -159,6 +166,11 @@ export const documentsApi = {
   },
   delete: (botId: string, docId: string) =>
     request<void>(`/api/bots/${botId}/documents/${docId}`, { method: "DELETE" }),
+  updateMetadata: (botId: string, docId: string, patch: DocumentMetadataPatch) =>
+    request<Document>(`/api/bots/${botId}/documents/${docId}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
 };
 
 // ── Chat ──────────────────────────────────────────────────────────────────────
