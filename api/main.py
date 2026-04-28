@@ -12,7 +12,7 @@ from loguru import logger
 
 from core.config import settings
 from core.orchestrator import Orchestrator
-from core.agent_defaults import build_orchestrator_configs
+from core.agent_defaults import build_agent_configs
 from core.chat_engine import ChatEngine
 from db import get_supabase
 
@@ -86,8 +86,8 @@ def get_engines_for_bot(bot_id: str) -> Tuple[Orchestrator, ChatEngine]:
 
     agent_rows = _load_bot_agent_rows(bot_id)
     manual_workflows = _load_manual_workflows(bot_id)
-    configs = build_orchestrator_configs(agent_rows, manual_workflows=manual_workflows)
-    orch = Orchestrator(agent_configs=configs)
+    configs = build_agent_configs(agent_rows, manual_workflows=manual_workflows)
+    orch = Orchestrator(configs_by_agent_id=configs)
     chat = ChatEngine(orch)
     _orch_cache[bot_id] = (now, orch, chat)
     return orch, chat

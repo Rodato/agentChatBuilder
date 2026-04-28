@@ -39,21 +39,13 @@ import {
   IntentKey,
   INTENT_LABELS,
 } from "@/lib/workflowApi";
+import { agentsApi, AgentRow } from "@/lib/api";
 
 const NODE_TYPES: NodeTypes = {
   agent: AgentNode,
   capture: CaptureNode,
   handoff: HandoffNode,
 };
-
-const AGENT_OPTIONS = [
-  { value: "greeting", label: "Saludo" },
-  { value: "factual", label: "Informativo (RAG)" },
-  { value: "plan", label: "Planificación" },
-  { value: "ideate", label: "Lluvia de ideas" },
-  { value: "sensitive", label: "Sensible" },
-  { value: "fallback", label: "Fallback" },
-];
 
 let _nodeCounter = 0;
 function newNodeId(prefix: string): string {
@@ -76,6 +68,7 @@ function WorkflowEditorInner({ botId, workflowId, onBack }: InnerProps) {
   const [enabled, setEnabled] = useState(true);
   const [entryNodeId, setEntryNodeId] = useState<string | null>(null);
   const [otherWorkflows, setOtherWorkflows] = useState<WorkflowSummary[]>([]);
+  const [agentRows, setAgentRows] = useState<AgentRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -87,8 +80,12 @@ function WorkflowEditorInner({ botId, workflowId, onBack }: InnerProps) {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([workflowApi.get(botId, workflowId), workflowApi.list(botId)])
-      .then(([wf, list]) => {
+    Promise.all([
+      workflowApi.get(botId, workflowId),
+      workflowApi.list(botId),
+      agentsApi.list(botId),
+    ])
+      .then(([wf, list, agents]) => {
         if (cancelled) return;
         setName(wf.name || "Workflow");
         setTriggerType(wf.trigger_type);
@@ -98,6 +95,7 @@ function WorkflowEditorInner({ botId, workflowId, onBack }: InnerProps) {
         setNodes((wf.definition?.nodes || []) as Node[]);
         setEdges((wf.definition?.edges || []) as Edge[]);
         setOtherWorkflows(list.filter((w) => w.id !== workflowId));
+        setAgentRows(agents);
       })
       .catch((e) => setMessage(`Error cargando: ${e.message}`))
       .finally(() => !cancelled && setLoading(false));
@@ -366,6 +364,7 @@ function WorkflowEditorInner({ botId, workflowId, onBack }: InnerProps) {
                   isEntry={entryNodeId === selectedNode.id}
                   availableVars={availableVars}
                   otherWorkflows={otherWorkflows}
+                  agents={agentRows}
                   onChange={(patch) => updateNodeData(selectedNode.id, patch)}
                   onDelete={() => removeNode(selectedNode.id)}
                   onSetEntry={() => setEntryNodeId(selectedNode.id)}
@@ -388,6 +387,7 @@ interface InspectorProps {
   isEntry: boolean;
   availableVars: string[];
   otherWorkflows: WorkflowSummary[];
+  agents: AgentRow[];
   onChange: (patch: Partial<WorkflowNodeData>) => void;
   onDelete: () => void;
   onSetEntry: () => void;
@@ -398,6 +398,7 @@ function NodeInspector({
   isEntry,
   availableVars,
   otherWorkflows,
+  agents,
   onChange,
   onDelete,
   onSetEntry,
@@ -455,18 +456,31 @@ function NodeInspector({
       {node.type === "agent" && (
         <>
           <div className="space-y-1">
-            <Label>Agente</Label>
+            <Label>Especialista</Label>
             <select
               value={data.agent_id ?? "factual"}
               onChange={(e) => onChange({ agent_id: e.target.value })}
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
             >
-              {AGENT_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
+              {!agents.some((a) => a.agent_id === (data.agent_id ?? "factual")) &&
+                data.agent_id && (
+                  <option value={data.agent_id}>
+                    ⚠ {data.agent_id} (no encontrado)
+                  </option>
+                )}
+              {agents.map((a) => (
+                <option key={a.agent_id} value={a.agent_id} disabled={!a.enabled}>
+                  {a.name}
+                  {a.is_custom ? " (custom)" : ""}
+                  {!a.enabled ? " — deshabilitado" : ""}
                 </option>
               ))}
             </select>
+            {data.agent_id && !agents.some((a) => a.agent_id === data.agent_id) && (
+              <p className="text-xs text-red-600">
+                ⚠️ Este especialista ya no existe. Elige otro o el workflow fallará en runtime.
+              </p>
+            )}
           </div>
           <div className="space-y-1">
             <Label>Instrucción (opcional)</Label>

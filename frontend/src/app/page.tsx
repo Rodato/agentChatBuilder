@@ -18,14 +18,14 @@ export default function Home() {
       <main className="flex-1 flex items-center justify-center">
         <div className="container mx-auto px-4 text-center">
           <h2 className="text-5xl font-bold mb-6">
-            Crea Chatbots con IA
+            Crea Agentes de IA
             <br />
             <span className="text-blue-600">Sin Código</span>
           </h2>
           <p className="text-xl text-gray-600 mb-8 max-w-2xl mx-auto">
-            Crea chatbots inteligentes con RAG, agentes especializados y
-            despliegue multicanal. Conéctalos a WhatsApp, Telegram o incrústalos
-            en tu sitio web.
+            Construye Agentes de IA conversacionales con RAG, especialistas por
+            intención y despliegue multicanal. Conéctalos a WhatsApp, Telegram o
+            incrústalos en tu sitio web.
           </p>
           <div className="flex gap-4 justify-center">
             <Link href="/dashboard">
@@ -43,9 +43,9 @@ export default function Home() {
               </p>
             </div>
             <div className="p-6 border rounded-lg">
-              <h3 className="text-lg font-semibold mb-2">Agentes Especializados</h3>
+              <h3 className="text-lg font-semibold mb-2">Especialistas por intención</h3>
               <p className="text-gray-600">
-                Configura agentes distintos para cada intención: informativo,
+                Configura sub-agentes distintos para cada intención: informativo,
                 creativo, planificación y más.
               </p>
             </div>
@@ -63,7 +63,7 @@ export default function Home() {
       {/* Footer */}
       <footer className="border-t py-8">
         <div className="container mx-auto px-4 text-center text-gray-600">
-          <p>Agent Chat Builder — Crea chatbots más inteligentes</p>
+          <p>Agent Chat Builder — Crea Agentes de IA conversacionales</p>
         </div>
       </footer>
     </div>

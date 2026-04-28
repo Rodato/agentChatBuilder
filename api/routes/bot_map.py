@@ -90,12 +90,14 @@ async def get_bot_map(bot_id: str) -> Dict[str, Any]:
         if agent_id in defaults_by_id:
             continue
         metadata = row.get("metadata") or {}
+        intents = list(row.get("intents") or [])
         agents.append({
             "id": agent_id,
             "name": row.get("name"),
             "enabled": bool(row.get("enabled", True)),
             "is_custom": True,
-            "intent": None,
+            "intent": intents[0] if intents else None,
+            "intents": intents,
             "tools": row.get("tools") or {},
             "trigger_flows": metadata.get("trigger_flows") or [],
         })
@@ -154,17 +156,30 @@ async def get_bot_map(bot_id: str) -> Dict[str, Any]:
         })
         entry = {"kind": "agentic"}
 
-    # Agentic hub → enabled built-in agents (intent routing).
+    # Agentic hub → enabled agents (intent routing).
+    # Builtins always get one edge labelled with their fixed intent. Customs
+    # get one edge per registered intent; if they list none, no intent edge
+    # (they're only invocable from a Workflow node).
     for agent in agents:
-        if not agent["enabled"] or agent["is_custom"]:
+        if not agent["enabled"]:
             continue
-        edges.append({
-            "id": f"edge-agentic-agent-{agent['id']}",
-            "source": "agentic",
-            "target": f"agent:{agent['id']}",
-            "kind": "intent_route",
-            "label": agent.get("intent") or "",
-        })
+        if not agent["is_custom"]:
+            edges.append({
+                "id": f"edge-agentic-agent-{agent['id']}",
+                "source": "agentic",
+                "target": f"agent:{agent['id']}",
+                "kind": "intent_route",
+                "label": agent.get("intent") or "",
+            })
+        else:
+            for intent in agent.get("intents", []):
+                edges.append({
+                    "id": f"edge-agentic-agent-{agent['id']}-{intent}",
+                    "source": "agentic",
+                    "target": f"agent:{agent['id']}",
+                    "kind": "intent_route",
+                    "label": intent,
+                })
 
     # on_intent workflows: edge from agentic → workflow, labelled with the intent.
     for wf in workflows:

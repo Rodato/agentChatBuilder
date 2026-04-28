@@ -8,18 +8,25 @@ from loguru import logger
 from langgraph.graph import StateGraph, END
 
 from .state import GraphState, AgentState
-from .agent_defaults import build_orchestrator_configs, INTENT_TO_AGENT_ID
+from .agent_defaults import (
+    AGENT_ID_TO_INTENT,
+    INTENT_TO_AGENT_ID,
+    BUILTIN_AGENT_IDS,
+    build_agent_configs,
+    resolve_agent_for_intent,
+)
 from agents.greeting_agent import GreetingAgent
 from agents.rag_agent import RAGAgent
 from agents.plan_agent import PlanAgent
 from agents.ideate_agent import IdeateAgent
 from agents.sensitive_agent import SensitiveAgent
 from agents.fallback_agent import FallbackAgent
-from llm.multi_llm_client import MultiLLMClient, LLMProvider
+from agents.generic_agent import GenericAgent
+from llm.multi_llm_client import MultiLLMClient
 
 
-# Used as last-resort fallback when no bot-specific configs can be loaded.
-DEFAULT_AGENT_CONFIGS = build_orchestrator_configs([])
+# Used as last-resort fallback when no bot-specific configs are loaded.
+DEFAULT_AGENT_CONFIGS_BY_AGENT_ID = build_agent_configs([])
 
 
 def _graph_state_to_agent_state(state: GraphState) -> AgentState:
@@ -37,44 +44,61 @@ def _graph_state_to_agent_state(state: GraphState) -> AgentState:
     )
 
 
-def make_agent_node(agent, agent_key: str):
-    """Create a LangGraph node function from an agent instance."""
-    def node(state: GraphState) -> GraphState:
-        s = _graph_state_to_agent_state(state)
-        s = agent.process(s)
-        state["response"] = s.response
-        state["sources"] = s.sources
-        state["agent_used"] = s.metadata.get("agent_used", agent_key.lower())
-        return state
-    node.__name__ = f"{agent_key.lower()}_node"
-    return node
-
-
-def route_by_intent(state: GraphState) -> str:
-    """Conditional routing function based on detected intent."""
-    intent_to_node = {
-        "GREETING": "greeting_agent",
-        "FACTUAL": "rag_agent",
-        "PLAN": "plan_agent",
-        "IDEATE": "ideate_agent",
-        "SENSITIVE": "sensitive_agent",
-        "AMBIGUOUS": "fallback_agent",
-    }
-    return intent_to_node.get(state.get("intent", "AMBIGUOUS"), "fallback_agent")
+_BUILTIN_CLASSES = {
+    "greeting": GreetingAgent,
+    "factual": RAGAgent,
+    "plan": PlanAgent,
+    "ideate": IdeateAgent,
+    "sensitive": SensitiveAgent,
+    "fallback": FallbackAgent,
+}
 
 
 class Orchestrator:
     """
     Main orchestrator that routes queries through the agent pipeline.
 
-    Pipeline: language_detection → intent_routing → [conditional] → specialized_agent → END
+    Pipeline: language_detection → intent_routing → dispatch → END
+
+    The intent → agent mapping is resolved at runtime (per query) so that
+    custom agents registered for an intent take precedence over builtins
+    without recompiling the graph.
     """
 
-    def __init__(self, agent_configs: Optional[Dict[str, Any]] = None):
-        self.agent_configs = agent_configs or DEFAULT_AGENT_CONFIGS
+    def __init__(
+        self,
+        agent_configs: Optional[Dict[str, Any]] = None,
+        configs_by_agent_id: Optional[Dict[str, Dict[str, Any]]] = None,
+    ):
+        # `configs_by_agent_id` is the new shape (Dict[agent_id, config]).
+        # `agent_configs` is the legacy shape (Dict[INTENT, config]) — accepted
+        # for backwards compatibility with anything still passing it.
+        if configs_by_agent_id is not None:
+            self.configs_by_agent_id = configs_by_agent_id
+        elif agent_configs is not None and any(k in AGENT_ID_TO_INTENT.values() for k in agent_configs):
+            # Legacy: convert {INTENT: cfg} into {agent_id: cfg} for the builtins only.
+            self.configs_by_agent_id = {}
+            for agent_id, intent in AGENT_ID_TO_INTENT.items():
+                cfg = agent_configs.get(intent) or {}
+                self.configs_by_agent_id[agent_id] = {
+                    "agent_id": agent_id,
+                    "model": cfg.get("model"),
+                    "temperature": cfg.get("temperature"),
+                    "system_prompt": cfg.get("system_prompt"),
+                    "tools": {},
+                    "is_custom": False,
+                    "intents": [],
+                    "enabled": True,
+                    "position": 0,
+                    "metadata": {},
+                    "name": agent_id,
+                }
+        else:
+            self.configs_by_agent_id = DEFAULT_AGENT_CONFIGS_BY_AGENT_ID
+
         self.llm = MultiLLMClient()
 
-        # Initialize vector store only if MongoDB URI is configured
+        # Initialize vector store only if MongoDB URI is configured.
         self.vector_store = None
         if os.getenv("MONGODB_URI"):
             try:
@@ -83,56 +107,50 @@ class Orchestrator:
             except Exception as e:
                 logger.warning(f"Could not initialize vector store: {e}")
 
+        self.agents: Dict[str, Any] = {}
         self.graph = self._build_graph()
+
+    # ── Agent factory ───────────────────────────────────────────────────────
+
+    def _instantiate_agent(self, agent_id: str, config: Dict[str, Any]):
+        cls = _BUILTIN_CLASSES.get(agent_id)
+        if cls is not None:
+            return cls(self.llm, config, self.vector_store)
+        return GenericAgent(
+            name=config.get("name") or agent_id,
+            llm_client=self.llm,
+            agent_config=config,
+            vector_store=self.vector_store,
+        )
+
+    # ── Graph ───────────────────────────────────────────────────────────────
 
     def _build_graph(self):
         """Build and compile the LangGraph StateGraph."""
-        # Instantiate agents with their configs and keep them addressable.
-        self.agents = {
-            "greeting": GreetingAgent(self.llm, self.agent_configs.get("GREETING")),
-            "factual": RAGAgent(self.llm, self.agent_configs.get("FACTUAL"), self.vector_store),
-            "plan": PlanAgent(self.llm, self.agent_configs.get("PLAN"), self.vector_store),
-            "ideate": IdeateAgent(self.llm, self.agent_configs.get("IDEATE")),
-            "sensitive": SensitiveAgent(self.llm, self.agent_configs.get("SENSITIVE")),
-            "fallback": FallbackAgent(self.llm, self.agent_configs.get("AMBIGUOUS")),
-        }
+        # Instantiate all agents we know about (builtins always; customs from config).
+        for agent_id in BUILTIN_AGENT_IDS:
+            cfg = self.configs_by_agent_id.get(agent_id) or {}
+            self.agents[agent_id] = self._instantiate_agent(agent_id, cfg)
+        for agent_id, cfg in self.configs_by_agent_id.items():
+            if agent_id in self.agents:
+                continue
+            self.agents[agent_id] = self._instantiate_agent(agent_id, cfg)
 
         graph = StateGraph(GraphState)
-
-        # Detection and routing nodes
         graph.add_node("language_detection", self._language_detection_node)
         graph.add_node("intent_routing", self._intent_routing_node)
+        graph.add_node("dispatch", self._dispatch_node)
 
-        # Specialized agent nodes
-        graph.add_node("greeting_agent", make_agent_node(self.agents["greeting"], "GREETING"))
-        graph.add_node("rag_agent", make_agent_node(self.agents["factual"], "FACTUAL"))
-        graph.add_node("plan_agent", make_agent_node(self.agents["plan"], "PLAN"))
-        graph.add_node("ideate_agent", make_agent_node(self.agents["ideate"], "IDEATE"))
-        graph.add_node("sensitive_agent", make_agent_node(self.agents["sensitive"], "SENSITIVE"))
-        graph.add_node("fallback_agent", make_agent_node(self.agents["fallback"], "AMBIGUOUS"))
-
-        # Edges
         graph.set_entry_point("language_detection")
         graph.add_edge("language_detection", "intent_routing")
-        graph.add_conditional_edges(
-            "intent_routing",
-            route_by_intent,
-            {
-                "greeting_agent": "greeting_agent",
-                "rag_agent": "rag_agent",
-                "plan_agent": "plan_agent",
-                "ideate_agent": "ideate_agent",
-                "sensitive_agent": "sensitive_agent",
-                "fallback_agent": "fallback_agent",
-            },
-        )
-        for node in ["greeting_agent", "rag_agent", "plan_agent", "ideate_agent", "sensitive_agent", "fallback_agent"]:
-            graph.add_edge(node, END)
+        graph.add_edge("intent_routing", "dispatch")
+        graph.add_edge("dispatch", END)
 
         return graph.compile()
 
+    # ── Nodes ───────────────────────────────────────────────────────────────
+
     def _language_detection_node(self, state: GraphState) -> GraphState:
-        """Detect language from user input."""
         import re
         text = state["user_input"].lower()
 
@@ -149,7 +167,6 @@ class Orchestrator:
         return state
 
     def _intent_routing_node(self, state: GraphState) -> GraphState:
-        """Classify intent from user input using keyword heuristics."""
         text = state["user_input"].lower()
 
         greeting_words = ["hola", "hello", "hi", "buenos", "buenas", "hey", "saludos", "bom dia", "boa tarde"]
@@ -180,6 +197,26 @@ class Orchestrator:
         state["debug_info"]["intent_confidence"] = state["intent_confidence"]
         return state
 
+    def _dispatch_node(self, state: GraphState) -> GraphState:
+        """Resolve intent → agent_id (custom-or-builtin) and run that agent."""
+        intent = state.get("intent", "AMBIGUOUS")
+        agent_id = resolve_agent_for_intent(intent, self.configs_by_agent_id)
+        agent = self.agents.get(agent_id) or self.agents.get("fallback")
+        if agent is None:
+            state["response"] = self._get_error_message(state.get("language", "es"))
+            state["agent_used"] = "error_handler"
+            return state
+
+        s = _graph_state_to_agent_state(state)
+        s = agent.process(s)
+        state["response"] = s.response
+        state["sources"] = s.sources
+        # Agent_used: prefer the resolved agent_id (so customs show up in UI meta).
+        state["agent_used"] = s.metadata.get("agent_used") or agent_id
+        return state
+
+    # ── Public API ──────────────────────────────────────────────────────────
+
     def process_query(
         self,
         user_input: str,
@@ -188,7 +225,6 @@ class Orchestrator:
         bot_id: Optional[str] = None,
         context: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Process a user query through the full LangGraph pipeline."""
         start_time = time.time()
 
         initial_state: GraphState = {
@@ -201,7 +237,7 @@ class Orchestrator:
             "detected_filters": {},
             "intent": "AMBIGUOUS",
             "intent_confidence": 0.0,
-            "agent_configs": self.agent_configs,
+            "agent_configs": self.configs_by_agent_id,
             "response": "",
             "sources": [],
             "agent_used": "",
@@ -233,7 +269,7 @@ class Orchestrator:
         }
 
     def get_agent(self, agent_id: str):
-        """Return an agent instance by id (greeting, factual, plan, ideate, sensitive, fallback)."""
+        """Return an agent instance by id (builtins or customs)."""
         return self.agents.get(agent_id)
 
     def _get_error_message(self, language: str) -> str:

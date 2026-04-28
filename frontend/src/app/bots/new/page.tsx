@@ -26,7 +26,7 @@ export default function NewBotPage() {
       const bot = await botsApi.create({ name, description, personality });
       router.push(`/bots/${bot.id}`);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Error al crear el bot");
+      setError(e instanceof Error ? e.message : "Error al crear el agente");
       setLoading(false);
     }
   };
@@ -46,18 +46,18 @@ export default function NewBotPage() {
       <main className="container mx-auto px-4 py-8 max-w-2xl">
         <Card>
           <CardHeader>
-            <CardTitle className="text-2xl">Crear un nuevo bot</CardTitle>
+            <CardTitle className="text-2xl">Crear un nuevo Agente de IA</CardTitle>
             <CardDescription>
-              Configura los ajustes básicos de tu bot. Podrás agregar documentos y ajustar los agentes después.
+              Configura los ajustes básicos de tu Agente. Podrás agregar documentos y ajustar los especialistas después.
             </CardDescription>
           </CardHeader>
           <form onSubmit={handleCreate}>
             <CardContent className="space-y-6">
               <div className="space-y-2">
-                <Label htmlFor="name">Nombre del bot *</Label>
+                <Label htmlFor="name">Nombre del Agente *</Label>
                 <Input
                   id="name"
-                  placeholder="Bot de Soporte al Cliente"
+                  placeholder="Agente de Soporte al Cliente"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   required
@@ -84,7 +84,7 @@ export default function NewBotPage() {
                   onChange={(e) => setPersonality(e.target.value)}
                 />
                 <p className="text-sm text-gray-500">
-                  Define cómo debe comportarse y responder tu bot.
+                  Define cómo debe comportarse y responder tu Agente.
                 </p>
               </div>
 
@@ -96,8 +96,8 @@ export default function NewBotPage() {
                 <h4 className="font-medium text-blue-900 mb-2">¿Qué sigue?</h4>
                 <ul className="text-sm text-blue-800 space-y-1">
                   <li>• Sube documentos para construir tu base de conocimiento</li>
-                  <li>• Configura qué agentes están activos</li>
-                  <li>• Prueba tu bot en el chat</li>
+                  <li>• Configura qué especialistas están activos</li>
+                  <li>• Prueba tu Agente en el chat</li>
                   <li>• Conéctalo a WhatsApp, Telegram o incorpóralo a tu web</li>
                 </ul>
               </div>
@@ -110,7 +110,7 @@ export default function NewBotPage() {
                 </Button>
               </Link>
               <Button type="submit" disabled={loading || !name}>
-                {loading ? "Creando..." : "Crear Bot"}
+                {loading ? "Creando..." : "Crear Agente"}
               </Button>
             </CardFooter>
           </form>

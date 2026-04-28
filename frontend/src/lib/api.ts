@@ -76,6 +76,8 @@ export interface AgentMetadata {
   trigger_flows?: string[];
 }
 
+export type IntentKey = "GREETING" | "FACTUAL" | "PLAN" | "IDEATE" | "SENSITIVE" | "AMBIGUOUS";
+
 export interface AgentRow {
   bot_id: string;
   agent_id: string;
@@ -88,6 +90,7 @@ export interface AgentRow {
   enabled: boolean;
   is_custom: boolean;
   position: number;
+  intents?: IntentKey[];
   metadata?: AgentMetadata;
 }
 
@@ -100,7 +103,13 @@ export interface AgentPatch {
   tools?: Partial<AgentTools>;
   enabled?: boolean;
   position?: number;
+  intents?: IntentKey[];
   metadata?: AgentMetadata;
+}
+
+export interface AgentCreatePayload extends AgentPatch {
+  agent_id: string;
+  name: string;
 }
 
 export interface ChatSource {
@@ -138,15 +147,45 @@ export const botsApi = {
 
 // ── Agents ────────────────────────────────────────────────────────────────────
 
+export interface AgentDeleteBlocker {
+  workflow_id: string;
+  workflow_name: string;
+}
+
+export class AgentDeleteBlockedError extends Error {
+  constructor(public blockers: AgentDeleteBlocker[], message: string) {
+    super(message);
+    this.name = "AgentDeleteBlockedError";
+  }
+}
+
 export const agentsApi = {
   list: (botId: string) => request<AgentRow[]>(`/api/bots/${botId}/agents`),
+  create: (botId: string, payload: AgentCreatePayload) =>
+    request<AgentRow>(`/api/bots/${botId}/agents`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
   update: (botId: string, agentId: string, patch: AgentPatch) =>
     request<AgentRow>(`/api/bots/${botId}/agents/${agentId}`, {
       method: "PUT",
       body: JSON.stringify(patch),
     }),
-  delete: (botId: string, agentId: string) =>
-    request<void>(`/api/bots/${botId}/agents/${agentId}`, { method: "DELETE" }),
+  delete: async (botId: string, agentId: string): Promise<void> => {
+    const res = await fetch(`${BASE_URL}/api/bots/${botId}/agents/${agentId}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+    });
+    if (res.status === 204) return;
+    const body = await res.json().catch(() => null);
+    if (res.status === 409 && body?.detail?.blocked_by) {
+      throw new AgentDeleteBlockedError(
+        body.detail.blocked_by,
+        body.detail.message || "El especialista está siendo usado por uno o más workflows."
+      );
+    }
+    throw new Error(body?.detail || `HTTP ${res.status}`);
+  },
 };
 
 // ── Documents ────────────────────────────────────────────────────────────────

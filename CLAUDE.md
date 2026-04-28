@@ -11,14 +11,28 @@ No actualizar por: bugfixes menores, ajustes de UI, cambios de prompts sin impac
 **Tipo**: Plataforma SaaS para construir chatbots con agentes y RAG sin código
 **Inicio**: 2026-02-01
 **Basado en**: Aprendizajes de Puddle Assistant
-**Fase actual**: MVP + Workflows — primer release del motor de flujos
+**Fase actual**: MVP + Workflows + Mapa del Agente + RAG centralizado + Especialistas custom alcanzables
 **Repo**: https://github.com/Rodato/agentChatBuilder
 
 ---
 
-## Estado Actual (2026-04-21)
+## Estado Actual (2026-04-28)
 
-### Novedades 2026-04-21 PM — Sistema híbrido Workflows + Agentic
+### Novedades 2026-04-28 — Especialistas universales, RAG en BaseAgent, cleanup completo
+
+- **Renombrado UI**: "bot" → "Agente de IA" en todo lo user-facing. Tab interna "Agentes" → "Especialistas" para evitar el choque conceptual (un Agente de IA contiene varios Especialistas).
+- **Mapa del Agente** — nueva tab "Mapa" con React Flow read-only. Backend `GET /api/bots/{id}/map` devuelve agentes + workflows + edges derivadas (entry, intent_route, on_intent, manual_trigger, handoff, handoff_agentic). Componente `BotMapView` en `frontend/src/components/BotMap.tsx`.
+- **Metadata de documentos para RAG** — migración 004 añade `summary` y `keywords[]` a `documents`. PATCH `/api/bots/{id}/documents/{doc_id}` para editar. VectorStore aplica boost por overlap de keywords (`+0.05` por match, máx `+0.15`). RAGAgent inyecta resumen del doc + cabecera `[doc_name · p.X]` en cada bloque.
+- **Eliminar Agentes de IA** — botón papelera en cada card del dashboard con confirmación. `delete_bot` ahora purga MongoDB `doc_chunks` + `uploads/{bot_id}/` antes del DELETE SQL (cascade Postgres ya cubría `bot_agents`, `documents`, `workflows`, `conversations`).
+- **RAG centralizado en BaseAgent** — `BaseAgent.maybe_retrieve(state)` con filtro `bot_id`. Cualquier especialista cuyo `tools.rag_search=true` ahora hace retrieval real (antes solo `factual` y `plan`, este último sin filtro de bot — bug). Pasa `vector_store` a los 6.
+- **Especialistas custom alcanzables** — migración 005 añade `intents text[]` a `bot_agents`. Un custom puede registrarse para uno o más de los 6 intents y el dispatch dinámico del Orchestrator lo prefiere sobre el builtin. También invocables desde nodos `agent` de Workflows. Nueva clase `agents/generic_agent.py` para cuerpos custom.
+- **Borrado guard 409** — `DELETE /api/bots/{id}/agents/{agent_id}` revisa workflows referenciantes y devuelve 409 con `blocked_by` si están en uso. Frontend muestra dialog con la lista de workflows.
+- **WorkflowEditor dropdown dinámico** — eliminó la lista hardcoded `AGENT_OPTIONS`; ahora carga `agentsApi.list()` (incluye customs con badge). Inline warning si el `agent_id` guardado ya no existe.
+- **Orchestrator refactor** — `build_agent_configs(rows) → Dict[agent_id, cfg]` + `resolve_agent_for_intent(intent, configs) → agent_id`. Un solo nodo `dispatch` resuelve runtime cuál ejecutar (custom-or-builtin) sin recompilar el grafo.
+
+### Estado 2026-04-21
+
+#### Sistema híbrido Workflows + Agentic (PM)
 
 - **`ChatEngine`** (`core/chat_engine.py`): coordinador top-level por conversación. Mantiene un `workflow_stack` en la tabla `conversations`. Modo derivado: `stack vacío → agentic`, `stack no vacío → workflow`.
 - **Múltiples workflows por bot**, cada uno con `trigger_type`:
@@ -32,7 +46,7 @@ No actualizar por: bugfixes menores, ajustes de UI, cambios de prompts sin impac
 - `AgentEditPanel` expone checkbox-list de workflows manuales cuando se activa el tool; guarda en `bot_agents.metadata.trigger_flows`.
 - Tab Workflow del bot: lista (`WorkflowList`) → editor (`WorkflowEditor`) con sidebar de trigger.
 
-### Novedades 2026-04-21 AM — Agentes persistidos + workflows MVP
+#### Agentes persistidos + workflows MVP (AM)
 
 - Agent configs persistidas en Supabase (`bot_agents`); los cambios en UI afectan al Orchestrator real.
 - Orchestrator por `bot_id` con cache LRU (TTL 30s) — ya no hay singleton global.
@@ -216,8 +230,8 @@ MONGODB_URI=mongodb+srv://<user>:<password>@<cluster>.mongodb.net/agent_chat_bui
 
 - **Modelos OpenRouter**: siempre usar IDs con prefijo `provider/model`. IDs sin prefijo dan 400.
 - **VectorStore sin Atlas Index**: cosine similarity en Python. No requiere config en Atlas.
-- **MongoDB colección**: chunks en `doc_chunks` con campos `doc_id, bot_id, chunk_index, content, embedding, doc_name, page, processed_at`.
-- **Supabase tablas**: `bots`, `documents`, `bot_agents`, `workflows`, `conversations`. Schema completo en `db/migrations/`.
+- **MongoDB colección**: chunks en `doc_chunks` con campos `doc_id, bot_id, chunk_index, content, embedding, doc_name, doc_summary, doc_keywords, page, processed_at`. Al borrar un Agente de IA o un documento, los chunks se purgan explícitamente desde `delete_bot` / `delete_document`.
+- **Supabase tablas**: `bots`, `documents` (con `summary`, `keywords[]`), `bot_agents` (con `intents text[]`, `metadata jsonb`), `workflows`, `conversations`. Schema completo en `db/migrations/` (001..005).
 - **bot_id en /chat**: ahora es un campo Pydantic explícito en el body. Se pasa al Orchestrator y al WorkflowEngine.
 - **conversation_id**: generado en el cliente (frontend localStorage por bot). El motor de workflows lo usa como PK de estado.
 - **Orchestrator por bot**: no es singleton — `api/main.py:get_orchestrator_for_bot(bot_id)` con cache LRU TTL 30s. Se invalida al editar agentes o workflow.

@@ -14,6 +14,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { workflowApi, WorkflowSummary } from "@/lib/workflowApi";
+import { IntentKey } from "@/lib/api";
 
 const MODEL_GROUPS = [
   {
@@ -77,6 +78,15 @@ const TOOL_LABELS: Record<keyof Agent["tools"], string> = {
   external_api: "API externa",
 };
 
+const INTENT_OPTIONS: { value: IntentKey; label: string; description: string }[] = [
+  { value: "GREETING", label: "Saludo", description: "Hola, buenos días, hi…" },
+  { value: "FACTUAL", label: "Informativo (RAG)", description: "Preguntas sobre los documentos" },
+  { value: "PLAN", label: "Planificación", description: "Crear planes, pasos, estrategia" },
+  { value: "IDEATE", label: "Lluvia de ideas", description: "Brainstorm, creatividad" },
+  { value: "SENSITIVE", label: "Sensible", description: "Temas delicados con cuidado" },
+  { value: "AMBIGUOUS", label: "Ambiguo / Fallback", description: "Cuando nada más calza" },
+];
+
 function temperatureLabel(t: number): string {
   if (t <= 0.3) return "Conservador";
   if (t >= 0.7) return "Creativo";
@@ -96,7 +106,14 @@ export function AgentEditPanel({ agent, open, botId, onSave, onClose }: AgentEdi
   const [manualWorkflows, setManualWorkflows] = useState<WorkflowSummary[]>([]);
 
   useEffect(() => {
-    if (agent) setDraft({ ...agent, tools: { ...agent.tools }, trigger_flows: [...(agent.trigger_flows ?? [])] });
+    if (agent) {
+      setDraft({
+        ...agent,
+        tools: { ...agent.tools },
+        trigger_flows: [...(agent.trigger_flows ?? [])],
+        intents: [...(agent.intents ?? [])],
+      });
+    }
   }, [agent]);
 
   useEffect(() => {
@@ -127,11 +144,21 @@ export function AgentEditPanel({ agent, open, botId, onSave, onClose }: AgentEdi
     });
   };
 
+  const toggleIntent = (intent: IntentKey, checked: boolean) => {
+    setDraft((prev) => {
+      if (!prev) return prev;
+      const current = new Set<IntentKey>(prev.intents ?? []);
+      if (checked) current.add(intent);
+      else current.delete(intent);
+      return { ...prev, intents: Array.from(current) };
+    });
+  };
+
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Editar Agente</DialogTitle>
+          <DialogTitle>Editar Especialista</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-6 py-2">
@@ -210,6 +237,38 @@ export function AgentEditPanel({ agent, open, botId, onSave, onClose }: AgentEdi
               </div>
             </div>
           </section>
+
+          {/* INTENTS — solo para custom */}
+          {draft.is_custom && (
+            <section className="space-y-2">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
+                Se activa para estos intents
+              </h3>
+              <p className="text-xs text-gray-500">
+                Marca cuándo el router agéntico debe preferir este especialista sobre el builtin.
+                Si no marcas ninguno, solo se invoca desde un nodo de Workflow.
+              </p>
+              <div className="space-y-1.5">
+                {INTENT_OPTIONS.map((opt) => {
+                  const checked = (draft.intents ?? []).includes(opt.value);
+                  return (
+                    <label key={opt.value} className="flex items-start gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) => toggleIntent(opt.value, e.target.checked)}
+                        className="w-4 h-4 mt-0.5 rounded accent-purple-600"
+                      />
+                      <span className="text-sm">
+                        <span className="font-medium">{opt.label}</span>
+                        <span className="text-gray-500 ml-2">{opt.description}</span>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </section>
+          )}
 
           {/* BODY */}
           <section className="space-y-3">

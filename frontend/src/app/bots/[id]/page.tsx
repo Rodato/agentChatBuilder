@@ -24,9 +24,20 @@ import {
   agentsApi,
   AgentRow,
   AgentPatch,
+  AgentDeleteBlockedError,
+  AgentDeleteBlocker,
   Bot,
   Document,
+  IntentKey,
 } from "@/lib/api";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 const DEFAULT_TOOLS = {
   rag_search: false,
@@ -48,6 +59,7 @@ function rowToAgent(row: AgentRow): Agent {
     enabled: row.enabled,
     is_custom: row.is_custom,
     trigger_flows: row.metadata?.trigger_flows ?? [],
+    intents: (row.intents ?? []) as IntentKey[],
   };
 }
 
@@ -85,6 +97,10 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
   const [saving, setSaving] = useState(false);
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
   const [editingDoc, setEditingDoc] = useState<Document | null>(null);
+  const [deleteAgentTarget, setDeleteAgentTarget] = useState<Agent | null>(null);
+  const [deleteAgentBlockers, setDeleteAgentBlockers] = useState<AgentDeleteBlocker[] | null>(null);
+  const [deleteAgentError, setDeleteAgentError] = useState<string | null>(null);
+  const [deletingAgent, setDeletingAgent] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -217,9 +233,34 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
   }, []);
 
   const handleSaveAgent = async (updated: Agent) => {
-    setAgents((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
+    const isNew = !agents.some((a) => a.id === updated.id);
     setEditPanelOpen(false);
     setEditingAgent(null);
+
+    if (isNew && updated.is_custom) {
+      // Persist as a new custom agent (POST). Replace the temporary local row
+      // with whatever the server returns (canonical agent_id, defaults, etc.).
+      try {
+        const created = await agentsApi.create(id, {
+          agent_id: updated.id,
+          name: updated.name,
+          objective: updated.objective,
+          system_prompt: updated.system_prompt,
+          model: updated.model,
+          temperature: updated.temperature,
+          tools: updated.tools,
+          enabled: updated.enabled,
+          intents: updated.intents,
+          metadata: { trigger_flows: updated.trigger_flows ?? [] },
+        });
+        setAgents((prev) => [...prev, rowToAgent(created)]);
+      } catch (e) {
+        console.error("create custom agent", e);
+      }
+      return;
+    }
+
+    setAgents((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
     await persistAgent(updated.id, {
       name: updated.name,
       objective: updated.objective,
@@ -228,8 +269,34 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
       temperature: updated.temperature,
       tools: updated.tools,
       enabled: updated.enabled,
+      intents: updated.is_custom ? updated.intents : undefined,
       metadata: { trigger_flows: updated.trigger_flows ?? [] },
     });
+  };
+
+  const handleDeleteAgent = useCallback((agent: Agent) => {
+    setDeleteAgentTarget(agent);
+    setDeleteAgentBlockers(null);
+    setDeleteAgentError(null);
+  }, []);
+
+  const handleConfirmDeleteAgent = async () => {
+    if (!deleteAgentTarget) return;
+    setDeletingAgent(true);
+    setDeleteAgentError(null);
+    try {
+      await agentsApi.delete(id, deleteAgentTarget.id);
+      setAgents((prev) => prev.filter((a) => a.id !== deleteAgentTarget.id));
+      setDeleteAgentTarget(null);
+    } catch (e) {
+      if (e instanceof AgentDeleteBlockedError) {
+        setDeleteAgentBlockers(e.blockers);
+      } else {
+        setDeleteAgentError(e instanceof Error ? e.message : "No se pudo eliminar.");
+      }
+    } finally {
+      setDeletingAgent(false);
+    }
   };
 
   const handleUploadClick = () => fileInputRef.current?.click();
@@ -275,7 +342,7 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
   if (botLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <p className="text-gray-500">Cargando bot...</p>
+        <p className="text-gray-500">Cargando agente...</p>
       </div>
     );
   }
@@ -283,7 +350,7 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
   if (!bot) {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center gap-4">
-        <p className="text-gray-500">Bot no encontrado.</p>
+        <p className="text-gray-500">Agente no encontrado.</p>
         <Link href="/dashboard"><Button>Volver al Dashboard</Button></Link>
       </div>
     );
@@ -315,7 +382,7 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
           <TabsList>
             <TabsTrigger value="settings">Configuración</TabsTrigger>
             <TabsTrigger value="map">Mapa</TabsTrigger>
-            <TabsTrigger value="agents">Agentes</TabsTrigger>
+            <TabsTrigger value="agents">Especialistas</TabsTrigger>
             <TabsTrigger value="workflow">Workflow</TabsTrigger>
             <TabsTrigger value="documents">Documentos</TabsTrigger>
             <TabsTrigger value="test">Chat de Prueba</TabsTrigger>
@@ -325,12 +392,12 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
           <TabsContent value="settings">
             <Card>
               <CardHeader>
-                <CardTitle>Configuración del Bot</CardTitle>
-                <CardDescription>Configura la información básica y personalidad de tu bot</CardDescription>
+                <CardTitle>Configuración del Agente</CardTitle>
+                <CardDescription>Configura la información básica y personalidad de tu Agente de IA</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="space-y-2">
-                  <Label htmlFor="name">Nombre del bot</Label>
+                  <Label htmlFor="name">Nombre del Agente</Label>
                   <Input
                     id="name"
                     value={bot.name}
@@ -352,7 +419,7 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
                     rows={4}
                     value={bot.personality ?? ""}
                     onChange={(e) => setBot({ ...bot, personality: e.target.value })}
-                    placeholder="Describe cómo debe comportarse el bot..."
+                    placeholder="Describe cómo debe comportarse el Agente..."
                   />
                 </div>
                 <div className="space-y-2">
@@ -366,8 +433,8 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
                 </div>
                 <div className="flex items-center justify-between">
                   <div>
-                    <Label>Estado del bot</Label>
-                    <p className="text-sm text-gray-500">Activar o desactivar este bot</p>
+                    <Label>Estado del Agente</Label>
+                    <p className="text-sm text-gray-500">Activar o desactivar este Agente</p>
                   </div>
                   <Switch
                     checked={bot.is_active}
@@ -392,17 +459,19 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
               <CardHeader>
                 <div className="flex justify-between items-start">
                   <div>
-                    <CardTitle>Agentes</CardTitle>
-                    <CardDescription>Configura, activa y crea agentes especializados</CardDescription>
+                    <CardTitle>Especialistas</CardTitle>
+                    <CardDescription>
+                      Configura los sub-agentes especializados que componen este Agente de IA
+                    </CardDescription>
                   </div>
                   <Button onClick={handleAddAgent} size="sm">
-                    <Plus className="w-4 h-4 mr-1" /> Agregar Agente
+                    <Plus className="w-4 h-4 mr-1" /> Agregar Especialista
                   </Button>
                 </div>
               </CardHeader>
               <CardContent>
                 {agentsLoading ? (
-                  <p className="text-sm text-gray-500">Cargando agentes...</p>
+                  <p className="text-sm text-gray-500">Cargando especialistas...</p>
                 ) : (
                   <div className="space-y-3">
                     {agents.map((agent) => (
@@ -411,6 +480,7 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
                         agent={agent}
                         onToggle={handleToggleAgent}
                         onEdit={handleEditAgent}
+                        onDelete={handleDeleteAgent}
                       />
                     ))}
                   </div>
@@ -424,6 +494,65 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
               onSave={handleSaveAgent}
               onClose={() => { setEditPanelOpen(false); setEditingAgent(null); }}
             />
+            <Dialog
+              open={!!deleteAgentTarget}
+              onOpenChange={(o) => !o && !deletingAgent && setDeleteAgentTarget(null)}
+            >
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>
+                    {deleteAgentBlockers ? "No se puede eliminar todavía" : "Eliminar especialista"}
+                  </DialogTitle>
+                  <DialogDescription>
+                    {deleteAgentBlockers ? (
+                      <>
+                        <span className="font-medium text-gray-900">{deleteAgentTarget?.name}</span> está siendo
+                        usado por uno o más workflows. Edita esos workflows primero (cambia el nodo `agent` por
+                        otro especialista o elimínalo) y vuelve a intentarlo.
+                      </>
+                    ) : (
+                      <>
+                        ¿Seguro que quieres eliminar <span className="font-medium text-gray-900">{deleteAgentTarget?.name}</span>?
+                        Esta acción no se puede deshacer.
+                      </>
+                    )}
+                  </DialogDescription>
+                </DialogHeader>
+
+                {deleteAgentBlockers && (
+                  <div className="rounded-md border bg-amber-50 border-amber-200 p-3 space-y-1">
+                    <p className="text-xs font-medium text-amber-900">Workflows que lo referencian:</p>
+                    <ul className="text-sm text-amber-900 list-disc pl-5">
+                      {deleteAgentBlockers.map((b) => (
+                        <li key={b.workflow_id}>{b.workflow_name || b.workflow_id}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {deleteAgentError && (
+                  <p className="text-sm text-red-600">{deleteAgentError}</p>
+                )}
+
+                <DialogFooter>
+                  <Button
+                    variant="outline"
+                    onClick={() => setDeleteAgentTarget(null)}
+                    disabled={deletingAgent}
+                  >
+                    {deleteAgentBlockers ? "Cerrar" : "Cancelar"}
+                  </Button>
+                  {!deleteAgentBlockers && (
+                    <Button
+                      variant="destructive"
+                      onClick={handleConfirmDeleteAgent}
+                      disabled={deletingAgent}
+                    >
+                      {deletingAgent ? "Eliminando…" : "Eliminar"}
+                    </Button>
+                  )}
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </TabsContent>
 
           {/* Workflow Tab */}
@@ -554,8 +683,8 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
               <CardHeader>
                 <div className="flex items-start justify-between">
                   <div>
-                    <CardTitle>Probar tu Bot</CardTitle>
-                    <CardDescription>Envía mensajes para ver cómo responde tu bot</CardDescription>
+                    <CardTitle>Probar tu Agente</CardTitle>
+                    <CardDescription>Envía mensajes para ver cómo responde tu Agente de IA</CardDescription>
                   </div>
                   <Button variant="ghost" size="sm" onClick={handleResetConversation}>
                     Reiniciar conversación
@@ -568,7 +697,7 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
                   {chatMessages.length === 0 ? (
                     <div className="text-center text-gray-500 py-8">
                       <p>Aún no hay mensajes.</p>
-                      <p className="text-sm">Inicia una conversación para probar tu bot.</p>
+                      <p className="text-sm">Inicia una conversación para probar tu Agente.</p>
                     </div>
                   ) : (
                     chatMessages.map((msg, i) => (

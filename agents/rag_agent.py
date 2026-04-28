@@ -1,6 +1,6 @@
 """RAG agent for answering factual questions from documents."""
 
-from typing import Optional, Any
+from typing import Any, Optional
 from loguru import logger
 
 from .base_agent import BaseAgent, AgentState
@@ -21,24 +21,31 @@ NO_RESULTS = {
 
 
 class RAGAgent(BaseAgent):
-    """Handles factual queries using RAG (Retrieval-Augmented Generation)."""
+    """Handles factual queries using RAG (Retrieval-Augmented Generation).
+
+    Unlike other specialists, RAG is the *primary* operation: when retrieval
+    returns nothing, this agent answers with a polite "no encontré info"
+    message instead of letting the LLM hallucinate. To guarantee retrieval
+    happens, this agent always searches (regardless of `tools.rag_search`)."""
 
     def __init__(
         self,
         llm_client: Optional[MultiLLMClient] = None,
-        agent_config: dict = None,
+        agent_config: Optional[dict] = None,
         vector_store: Optional[Any] = None,
     ):
-        super().__init__("RAGAgent", llm_client)
-        self.config = agent_config or DEFAULT_CONFIG
-        self.vector_store = vector_store
+        super().__init__(
+            name="RAGAgent",
+            llm_client=llm_client,
+            agent_config=agent_config or DEFAULT_CONFIG,
+            vector_store=vector_store,
+        )
         if self.llm is None:
             self.llm = MultiLLMClient()
 
     def process(self, state: AgentState) -> AgentState:
         self.log_processing(state)
 
-        # Try RAG search if vector store available
         rag_context = ""
         sources = []
         if self.vector_store:
@@ -47,25 +54,7 @@ class RAGAgent(BaseAgent):
                     state.user_input, top_k=5, bot_id=state.bot_id
                 )
                 if results:
-                    # Prepend each chunk with its source label and (when present) the
-                    # doc-level summary, so the LLM has high-signal framing per snippet.
-                    seen_summaries: set[str] = set()
-                    blocks: list[str] = []
-                    for r in results:
-                        header_parts = []
-                        if r.get("doc_name"):
-                            header_parts.append(r["doc_name"])
-                        if r.get("page") is not None:
-                            header_parts.append(f"p.{r['page']}")
-                        header = f"[{' · '.join(header_parts)}]" if header_parts else ""
-                        block = ""
-                        summary = r.get("doc_summary")
-                        if summary and summary not in seen_summaries:
-                            block += f"Resumen del documento: {summary}\n"
-                            seen_summaries.add(summary)
-                        block += f"{header}\n{r.get('content', '')}".strip()
-                        blocks.append(block)
-                    rag_context = "\n\n---\n\n".join(blocks)
+                    rag_context = self._format_rag_context(results)
                     sources = results
             except Exception as e:
                 logger.warning(f"RAG search failed: {e}")
@@ -75,7 +64,7 @@ class RAGAgent(BaseAgent):
             state.metadata["agent_used"] = "rag"
             return state
 
-        # Preserve any upstream context (e.g. captured workflow vars) and append RAG snippets.
+        # Combine upstream context (e.g. captured workflow vars) with RAG snippets.
         context_parts = []
         if state.context:
             context_parts.append(state.context)

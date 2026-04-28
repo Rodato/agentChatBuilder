@@ -1,6 +1,6 @@
 """Plan agent for handling planning and workshop intents."""
 
-from typing import Optional, Any
+from typing import Any, Optional
 from loguru import logger
 
 from .base_agent import BaseAgent, AgentState
@@ -20,29 +20,29 @@ class PlanAgent(BaseAgent):
     def __init__(
         self,
         llm_client: Optional[MultiLLMClient] = None,
-        agent_config: dict = None,
+        agent_config: Optional[dict] = None,
         vector_store: Optional[Any] = None,
     ):
-        super().__init__("PlanAgent", llm_client)
-        self.config = agent_config or DEFAULT_CONFIG
-        self.vector_store = vector_store
+        super().__init__(
+            name="PlanAgent",
+            llm_client=llm_client,
+            agent_config=agent_config or DEFAULT_CONFIG,
+            vector_store=vector_store,
+        )
         if self.llm is None:
             self.llm = MultiLLMClient()
 
     def process(self, state: AgentState) -> AgentState:
         self.log_processing(state)
 
-        # Enrich with RAG context if available
-        prompt = state.user_input
-        if self.vector_store:
-            try:
-                results = self.vector_store.search(state.user_input, top_k=5)
-                if results:
-                    context = "\n\n".join(r.get("content", "") for r in results)
-                    prompt = f"Context:\n{context}\n\nRequest: {state.user_input}"
-                    state.sources = results
-            except Exception as e:
-                logger.warning(f"PlanAgent RAG search failed: {e}")
+        rag_context, sources = self.maybe_retrieve(state)
+        prompt = (
+            f"Context:\n{rag_context}\n\nRequest: {state.user_input}"
+            if rag_context
+            else state.user_input
+        )
+        if sources:
+            state.sources = sources
 
         try:
             state.response = self.llm.complete(

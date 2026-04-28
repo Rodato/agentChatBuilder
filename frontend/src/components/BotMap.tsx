@@ -71,7 +71,7 @@ function AgentNodeImpl({ data }: NodeProps) {
     >
       <Handle type="target" position={Position.Left} className="!bg-blue-500 !w-3 !h-3" />
       <div className="px-3 py-2 border-b bg-blue-50 text-blue-900 text-xs font-semibold uppercase tracking-wide flex items-center justify-between">
-        <span>Agente</span>
+        <span>Especialista</span>
         {d.badge && <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-200">{d.badge}</span>}
       </div>
       <div className="p-3">
@@ -178,9 +178,9 @@ function BotMapInner({ botId }: InnerProps) {
       <CardHeader>
         <div className="flex justify-between items-start">
           <div>
-            <CardTitle>Mapa del bot</CardTitle>
+            <CardTitle>Mapa del Agente</CardTitle>
             <CardDescription>
-              Vista global: punto de inicio, sistema agéntico, agentes y workflows con sus conexiones.
+              Vista global: punto de inicio, sistema agéntico, especialistas y workflows con sus conexiones.
             </CardDescription>
           </div>
           <Button variant="outline" size="sm" onClick={refresh} disabled={loading}>
@@ -224,7 +224,7 @@ function BotMapInner({ botId }: InnerProps) {
 
         {data && (
           <div className="mt-4 text-xs text-gray-500 flex flex-wrap gap-4">
-            <span>{data.agents.filter((a) => a.enabled).length} agentes habilitados</span>
+            <span>{data.agents.filter((a) => a.enabled).length} especialistas habilitados</span>
             <span>·</span>
             <span>{data.workflows.filter((w) => w.enabled).length} workflows activos</span>
             <span>·</span>
@@ -241,7 +241,7 @@ function Legend() {
     <div className="flex flex-wrap gap-2 text-xs">
       <Badge variant="outline" className="border-emerald-400 text-emerald-800">Inicio</Badge>
       <Badge variant="outline" className="border-purple-400 text-purple-800">Sistema agéntico</Badge>
-      <Badge variant="outline" className="border-blue-400 text-blue-800">Agente</Badge>
+      <Badge variant="outline" className="border-blue-400 text-blue-800">Especialista</Badge>
       <Badge variant="outline" className="border-emerald-400 text-emerald-900">Workflow on_start</Badge>
       <Badge variant="outline" className="border-amber-400 text-amber-900">Workflow on_intent</Badge>
       <Badge variant="outline" className="border-indigo-400 text-indigo-900">Workflow manual</Badge>
