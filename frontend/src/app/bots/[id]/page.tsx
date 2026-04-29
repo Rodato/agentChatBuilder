@@ -400,7 +400,11 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
             <Card>
               <CardHeader>
                 <CardTitle>Configuración del Agente</CardTitle>
-                <CardDescription>Configura la información básica y personalidad de tu Agente de IA</CardDescription>
+                <CardDescription>
+                  Define la identidad de tu Agente de IA: nombre, descripción y personalidad. Estos
+                  ajustes influyen en el tono y los modelos que usará por defecto. Empieza aquí antes
+                  de cargar conocimiento o diseñar workflows.
+                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="space-y-2">
@@ -451,49 +455,51 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
             <BotMapView botId={id} />
           </TabsContent>
 
-          {/* Agents Tab */}
+          {/* Workers Tab */}
           <TabsContent value="agents">
-            <Card>
-              <CardHeader>
-                <div className="flex justify-between items-start">
-                  <div>
-                    <CardTitle>Workers</CardTitle>
-                    <CardDescription>
-                      Diseña los workers que componen este Agente de IA. Cada worker es un agente con
-                      su propio prompt, modelo y herramientas. Los workers se reusan en el Mapa para
-                      ensamblar el comportamiento del bot.
-                    </CardDescription>
+            {editingAgent ? (
+              <AgentEditPanel
+                agent={editingAgent}
+                botId={id}
+                onSave={handleSaveAgent}
+                onClose={() => { setEditPanelOpen(false); setEditingAgent(null); }}
+              />
+            ) : (
+              <Card>
+                <CardHeader>
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <CardTitle>Workers</CardTitle>
+                      <CardDescription>
+                        Diseña los workers que componen este Agente de IA. Cada worker es un agente con
+                        su propio prompt, modelo y herramientas. Los workers se reusan en el Mapa para
+                        ensamblar el comportamiento del bot.
+                      </CardDescription>
+                    </div>
+                    <Button onClick={handleAddAgent} size="sm">
+                      <Plus className="w-4 h-4 mr-1" /> Agregar Worker
+                    </Button>
                   </div>
-                  <Button onClick={handleAddAgent} size="sm">
-                    <Plus className="w-4 h-4 mr-1" /> Agregar Worker
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {agentsLoading ? (
-                  <p className="text-sm text-gray-500">Cargando workers...</p>
-                ) : (
-                  <div className="space-y-3">
-                    {agents.map((agent) => (
-                      <AgentCard
-                        key={agent.id}
-                        agent={agent}
-                        onToggle={handleToggleAgent}
-                        onEdit={handleEditAgent}
-                        onDelete={handleDeleteAgent}
-                      />
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-            <AgentEditPanel
-              agent={editingAgent}
-              open={editPanelOpen}
-              botId={id}
-              onSave={handleSaveAgent}
-              onClose={() => { setEditPanelOpen(false); setEditingAgent(null); }}
-            />
+                </CardHeader>
+                <CardContent>
+                  {agentsLoading ? (
+                    <p className="text-sm text-gray-500">Cargando workers...</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {agents.map((agent) => (
+                        <AgentCard
+                          key={agent.id}
+                          agent={agent}
+                          onToggle={handleToggleAgent}
+                          onEdit={handleEditAgent}
+                          onDelete={handleDeleteAgent}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
             <Dialog
               open={!!deleteAgentTarget}
               onOpenChange={(o) => !o && !deletingAgent && setDeleteAgentTarget(null)}
@@ -575,7 +581,12 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
                 <div className="flex justify-between items-start">
                   <div>
                     <CardTitle>Conocimiento</CardTitle>
-                    <CardDescription>Sube documentos para que tus workers respondan con base en ellos (RAG)</CardDescription>
+                    <CardDescription>
+                      Sube los documentos que conforman la base de conocimiento de este Agente.
+                      Cada documento puede tener un resumen y palabras clave que mejoran el retrieval.
+                      Los workers con la herramienta <strong>Búsqueda en documentos (RAG)</strong> activa
+                      consultarán automáticamente este conocimiento.
+                    </CardDescription>
                   </div>
                   <Button onClick={handleUploadClick} disabled={uploadingDoc}>
                     {uploadingDoc ? "Subiendo..." : "+ Subir Documento"}
@@ -684,7 +695,11 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
                 <div className="flex items-start justify-between">
                   <div>
                     <CardTitle>Probar tu Agente</CardTitle>
-                    <CardDescription>Envía mensajes para ver cómo responde tu Agente de IA</CardDescription>
+                    <CardDescription>
+                      Conversa con tu Agente exactamente como lo harán tus usuarios. Cada respuesta
+                      muestra abajo el modo (workflow / agentic), el worker que respondió y la
+                      latencia. Útil para validar prompts, intents y flujos antes de publicar.
+                    </CardDescription>
                   </div>
                   <Button variant="ghost" size="sm" onClick={handleResetConversation}>
                     Reiniciar conversación

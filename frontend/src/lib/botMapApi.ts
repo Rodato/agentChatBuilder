@@ -9,6 +9,7 @@ export type EdgeKind =
   | "intent_route"
   | "intent"
   | "manual_trigger"
+  | "workflow_agent"
   | "handoff"
   | "handoff_agentic";
 

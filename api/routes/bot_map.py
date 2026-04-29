@@ -117,22 +117,28 @@ async def get_bot_map(bot_id: str) -> Dict[str, Any]:
             "trigger_flows": metadata.get("trigger_flows") or [],
         })
 
-    # Workflows: extract handoffs from each definition.
+    # Workflows: extract handoffs and agent-node references from each definition.
     workflows: List[Dict[str, Any]] = []
+    workflow_agent_refs: List[Dict[str, Any]] = []  # workflow → worker dependencies
     for wf in workflow_rows:
         definition = wf.get("definition") or {}
         nodes = definition.get("nodes") or []
         handoffs: List[Dict[str, Any]] = []
+        agent_refs: List[str] = []
         for n in nodes:
-            if n.get("type") != "handoff":
-                continue
+            t = n.get("type")
             data = n.get("data") or {}
-            target = data.get("target") or "agentic"
-            handoffs.append({
-                "target": target,
-                "target_workflow_id": data.get("target_workflow_id"),
-                "label": data.get("label"),
-            })
+            if t == "handoff":
+                target = data.get("target") or "agentic"
+                handoffs.append({
+                    "target": target,
+                    "target_workflow_id": data.get("target_workflow_id"),
+                    "label": data.get("label"),
+                })
+            elif t == "agent":
+                agent_id = data.get("agent_id")
+                if agent_id and agent_id not in agent_refs:
+                    agent_refs.append(agent_id)
         workflows.append({
             "id": wf["id"],
             "name": wf["name"],
@@ -141,7 +147,10 @@ async def get_bot_map(bot_id: str) -> Dict[str, Any]:
             "enabled": bool(wf.get("enabled", True)),
             "version": wf.get("version", 1),
             "handoffs": handoffs,
+            "agent_refs": agent_refs,
         })
+        for agent_id in agent_refs:
+            workflow_agent_refs.append({"workflow_id": wf["id"], "agent_id": agent_id})
 
     workflows_by_id = {w["id"]: w for w in workflows}
     edges: List[Dict[str, Any]] = []
@@ -232,6 +241,19 @@ async def get_bot_map(bot_id: str) -> Dict[str, Any]:
                 "kind": "manual_trigger",
                 "label": "trigger_flow",
             })
+
+    # Workflow → Worker: derived from agent nodes inside each workflow definition.
+    agent_ids_set = {a["id"] for a in agents}
+    for ref in workflow_agent_refs:
+        if ref["agent_id"] not in agent_ids_set:
+            continue  # references a deleted worker
+        edges.append({
+            "id": f"edge-wfagent-{ref['workflow_id']}-{ref['agent_id']}",
+            "source": f"workflow:{ref['workflow_id']}",
+            "target": f"agent:{ref['agent_id']}",
+            "kind": "workflow_agent",
+            "label": "usa",
+        })
 
     # Handoffs from each workflow.
     for wf in workflows:

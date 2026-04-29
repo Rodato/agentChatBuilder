@@ -89,8 +89,10 @@ export function WorkflowList({ botId, onSelect }: Props) {
           <div>
             <CardTitle>Workflows</CardTitle>
             <CardDescription>
-              Define flujos con disparadores. Un bot puede tener varios: onboarding al iniciar,
-              flujos por intención, o flujos que un agente decide iniciar.
+              Diseña los flujos deterministas que componen este Agente: onboarding, captura de datos,
+              cobranza, agendamiento, etc. Cada workflow tiene un disparador (al iniciar, por intención
+              detectada, o manual desde un worker) y se reusa en el Mapa para ensamblar el comportamiento
+              del bot.
             </CardDescription>
           </div>
           <Button onClick={() => setCreateOpen(true)} size="sm">

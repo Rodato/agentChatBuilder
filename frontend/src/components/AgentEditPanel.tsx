@@ -3,16 +3,11 @@
 import { useState, useEffect } from "react";
 import { Agent } from "./AgentCard";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
+import { ArrowLeft } from "lucide-react";
 import { workflowApi, WorkflowSummary } from "@/lib/workflowApi";
 import { IntentKey, GraphDefinition, WorkerKind } from "@/lib/api";
 import { GraphEditor } from "@/components/worker/GraphEditor";
@@ -96,13 +91,12 @@ function temperatureLabel(t: number): string {
 
 interface AgentEditPanelProps {
   agent: Agent | null;
-  open: boolean;
   botId: string;
   onSave: (updated: Agent) => void;
   onClose: () => void;
 }
 
-export function AgentEditPanel({ agent, open, botId, onSave, onClose }: AgentEditPanelProps) {
+export function AgentEditPanel({ agent, botId, onSave, onClose }: AgentEditPanelProps) {
   const [draft, setDraft] = useState<Agent | null>(null);
   const [manualWorkflows, setManualWorkflows] = useState<WorkflowSummary[]>([]);
 
@@ -116,18 +110,20 @@ export function AgentEditPanel({ agent, open, botId, onSave, onClose }: AgentEdi
         kind: agent.kind ?? "agent",
         graph_definition: agent.graph_definition ?? null,
       });
+    } else {
+      setDraft(null);
     }
   }, [agent]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!agent) return;
     workflowApi
       .list(botId)
       .then((list) => setManualWorkflows(list.filter((w) => w.trigger_type === "manual")))
       .catch(() => setManualWorkflows([]));
-  }, [open, botId]);
+  }, [agent, botId]);
 
-  if (!draft) return null;
+  if (!agent || !draft) return null;
 
   const updateField = <K extends keyof Agent>(key: K, value: Agent[K]) =>
     setDraft((prev) => prev ? { ...prev, [key]: value } : prev);
@@ -164,12 +160,26 @@ export function AgentEditPanel({ agent, open, botId, onSave, onClose }: AgentEdi
     setDraft((prev) => (prev ? { ...prev, graph_definition: def } : prev));
 
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className={`${draft.kind === "graph" ? "max-w-5xl" : "max-w-lg"} max-h-[90vh] overflow-y-auto`}>
-        <DialogHeader>
-          <DialogTitle>Editar Worker</DialogTitle>
-        </DialogHeader>
-
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <Button variant="outline" size="sm" onClick={onClose}>
+              <ArrowLeft className="w-4 h-4 mr-1" /> Volver
+            </Button>
+            <div>
+              <CardTitle>{draft.is_custom ? "Editando Worker" : "Editando Worker (builtin)"}</CardTitle>
+              <CardDescription>
+                {draft.is_custom
+                  ? "Diseña este worker — su prompt, modelo, herramientas y, si es un grafo, sus sub-agentes."
+                  : "Worker builtin del sistema. Puedes editar su prompt y modelo, pero no su intent ni eliminarlo."}
+              </CardDescription>
+            </div>
+          </div>
+          <Button onClick={() => onSave(draft)}>Guardar cambios</Button>
+        </div>
+      </CardHeader>
+      <CardContent>
         <div className="space-y-6 py-2">
           {/* TIPO DE WORKER — solo para customs */}
           {draft.is_custom && (
@@ -383,13 +393,13 @@ export function AgentEditPanel({ agent, open, botId, onSave, onClose }: AgentEdi
           </section>
         </div>
 
-        <DialogFooter>
+        <div className="flex justify-end gap-2 pt-4 border-t mt-6">
           <Button variant="outline" onClick={onClose}>
             Cancelar
           </Button>
           <Button onClick={() => onSave(draft)}>Guardar cambios</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

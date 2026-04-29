@@ -142,13 +142,14 @@ const EDGE_STYLE: Record<EdgeKind, { stroke: string; dash?: string }> = {
   intent_route:     { stroke: "#a855f7" },
   intent:           { stroke: "#f59e0b" },
   manual_trigger:   { stroke: "#6366f1", dash: "6 4" },
+  workflow_agent:   { stroke: "#0ea5e9", dash: "2 3" },
   handoff:          { stroke: "#4b5563" },
   handoff_agentic:  { stroke: "#9333ea", dash: "6 4" },
 };
 
 // Edges of these kinds are managed via the Workflow editor, not the map. The
 // map renders them visually but they cannot be created or deleted from here.
-const READONLY_KINDS: EdgeKind[] = ["handoff", "handoff_agentic"];
+const READONLY_KINDS: EdgeKind[] = ["workflow_agent", "handoff", "handoff_agentic"];
 
 const INTENT_OPTIONS = [
   { value: "GREETING", label: "Saludo" },
@@ -354,8 +355,11 @@ function BotMapInner({ botId }: Props) {
           <div>
             <CardTitle>Mapa del Agente</CardTitle>
             <CardDescription>
-              Ensambla tu Agente. Arrastra Workers y Workflows desde la paleta y conéctalos al Hub
-              Agéntico, al Inicio o entre sí. Las conexiones definen el comportamiento del bot.
+              Ensambla tu Agente conectando piezas. Arrastra Workers y Workflows ya creados desde la
+              paleta y conéctalos al Inicio, al Hub Agéntico, o entre sí. Cada conexión define un
+              comportamiento: qué workflow arranca al inicio, qué worker maneja cada intención, qué
+              workers pueden disparar qué workflows. Las relaciones entre workflows y los workers que
+              invocan se muestran como aristas grises (se editan dentro del Workflow).
             </CardDescription>
           </div>
           <div className="flex gap-2">
@@ -558,6 +562,7 @@ function labelForKind(kind: EdgeKind): string {
   switch (kind) {
     case "entry": return "Inicio";
     case "manual_trigger": return "trigger_flow";
+    case "workflow_agent": return "usa";
     case "handoff": return "handoff";
     case "handoff_agentic": return "→ agentic";
     default: return "";

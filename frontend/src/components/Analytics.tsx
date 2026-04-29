@@ -52,7 +52,10 @@ export function AnalyticsView({ botId }: Props) {
             <div>
               <CardTitle>Analytics</CardTitle>
               <CardDescription>
-                Mensajes y comportamiento del Agente en los últimos días.
+                Observa cómo se está comportando tu Agente en los últimos días: cuántos mensajes
+                recibe, qué workers responden con más frecuencia, qué intenciones detecta el router
+                y cuánto tarda en responder. Útil para detectar workers infrautilizados o cuellos
+                de botella.
               </CardDescription>
             </div>
             <div className="flex gap-2">
