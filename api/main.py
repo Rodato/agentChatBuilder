@@ -124,6 +124,35 @@ async def health():
     return {"status": "healthy", "environment": settings.app_env}
 
 
+def _log_chat_message(
+    *,
+    conversation_id: str,
+    bot_id: str,
+    role: str,
+    content: str,
+    agent_used: Optional[str] = None,
+    intent: Optional[str] = None,
+    mode: Optional[str] = None,
+    processing_time_ms: Optional[int] = None,
+) -> None:
+    """Best-effort insert into chat_messages for analytics."""
+    if not content:
+        return
+    try:
+        get_supabase().table("chat_messages").insert({
+            "conversation_id": conversation_id,
+            "bot_id": bot_id,
+            "role": role,
+            "content": content,
+            "agent_used": agent_used,
+            "intent": intent,
+            "mode": mode,
+            "processing_time_ms": processing_time_ms,
+        }).execute()
+    except Exception as e:
+        logger.warning(f"chat_messages insert failed for {conversation_id}: {e}")
+
+
 @app.post("/chat")
 async def chat(req: ChatRequest):
     conversation_id = req.conversation_id or str(uuid.uuid4())
@@ -137,6 +166,23 @@ async def chat(req: ChatRequest):
     )
     # Ensure conversation_id is always included.
     result.setdefault("conversation_id", conversation_id)
+    # Best-effort analytics log (user message + assistant response).
+    _log_chat_message(
+        conversation_id=conversation_id,
+        bot_id=req.bot_id,
+        role="user",
+        content=req.message,
+    )
+    _log_chat_message(
+        conversation_id=conversation_id,
+        bot_id=req.bot_id,
+        role="assistant",
+        content=result.get("response", ""),
+        agent_used=result.get("agent_used"),
+        intent=result.get("intent"),
+        mode=result.get("mode"),
+        processing_time_ms=result.get("processing_time_ms"),
+    )
     return result
 
 
@@ -151,6 +197,16 @@ async def chat_start(req: ChatStartRequest):
         user_id=req.user_id,
     )
     result.setdefault("conversation_id", conversation_id)
+    _log_chat_message(
+        conversation_id=conversation_id,
+        bot_id=req.bot_id,
+        role="assistant",
+        content=result.get("response", ""),
+        agent_used=result.get("agent_used"),
+        intent=result.get("intent"),
+        mode=result.get("mode"),
+        processing_time_ms=result.get("processing_time_ms"),
+    )
     return result
 
 
@@ -161,12 +217,14 @@ from api.routes.agents import router as agents_router
 from api.routes.documents import router as documents_router
 from api.routes.workflows import router as workflows_router
 from api.routes.bot_map import router as bot_map_router
+from api.routes.analytics import router as analytics_router
 
 app.include_router(bots_router, prefix="/api/bots", tags=["bots"])
 app.include_router(agents_router, prefix="/api/bots", tags=["agents"])
 app.include_router(documents_router, prefix="/api/bots", tags=["documents"])
 app.include_router(workflows_router, prefix="/api/bots", tags=["workflows"])
 app.include_router(bot_map_router, prefix="/api/bots", tags=["bot-map"])
+app.include_router(analytics_router, prefix="/api/bots", tags=["analytics"])
 
 
 if __name__ == "__main__":

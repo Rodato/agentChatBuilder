@@ -13,6 +13,7 @@ import { Switch } from "@/components/ui/switch";
 import { Plus } from "lucide-react";
 import { AgentCard, Agent } from "@/components/AgentCard";
 import { AgentEditPanel } from "@/components/AgentEditPanel";
+import { AnalyticsView } from "@/components/Analytics";
 import { BotMapView } from "@/components/BotMap";
 import { DocumentMetadataDialog } from "@/components/DocumentMetadataDialog";
 import { WorkflowEditor } from "@/components/workflow/WorkflowEditor";
@@ -391,6 +392,7 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
             <TabsTrigger value="agents">Workers</TabsTrigger>
             <TabsTrigger value="map">Mapa</TabsTrigger>
             <TabsTrigger value="test">Chat de prueba</TabsTrigger>
+            <TabsTrigger value="analytics">Analytics</TabsTrigger>
           </TabsList>
 
           {/* Settings Tab */}
@@ -742,6 +744,11 @@ export default function BotPage({ params }: { params: Promise<{ id: string }> })
                 </div>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          {/* Analytics Tab */}
+          <TabsContent value="analytics">
+            <AnalyticsView botId={id} />
           </TabsContent>
         </Tabs>
       </main>

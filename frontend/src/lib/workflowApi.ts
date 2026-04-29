@@ -42,11 +42,13 @@ export interface WorkflowNodeData {
   target?: "agentic" | "workflow";
   target_workflow_id?: string;
   farewell?: string;
+  // message (texto fijo del bot, sin esperar input)
+  text?: string;
 }
 
 export interface WorkflowNode {
   id: string;
-  type: "agent" | "capture" | "handoff";
+  type: "agent" | "capture" | "handoff" | "message";
   position: { x: number; y: number };
   data: WorkflowNodeData;
 }

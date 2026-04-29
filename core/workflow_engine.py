@@ -147,6 +147,15 @@ class WorkflowEngine:
             ntype = node.get("type")
             data = node.get("data") or {}
 
+            if ntype == "message":
+                text = render_template(data.get("text") or data.get("prompt") or "", captured_vars)
+                if text:
+                    response = (response + "\n\n" + text) if response else text
+                if agent_used is None:
+                    agent_used = "message"
+                frame["node_id"] = self._next_node_id(workflow, node["id"])
+                continue  # advance to next node in the same turn
+
             if ntype == "capture":
                 var_name = data.get("var_name")
                 if not var_name:
@@ -156,7 +165,8 @@ class WorkflowEngine:
                     frame["node_id"] = self._next_node_id(workflow, node["id"])
                     continue
                 frame["pending_capture"] = {"var_name": var_name}
-                response = render_template(data.get("prompt", ""), captured_vars)
+                rendered = render_template(data.get("prompt", ""), captured_vars)
+                response = (response + "\n\n" + rendered) if response and rendered else (response or rendered)
                 agent_used = "capture"
                 break
 
@@ -167,20 +177,24 @@ class WorkflowEngine:
                     logger.warning(f"Unknown agent_id '{agent_id}' — skipping node.")
                     frame["node_id"] = self._next_node_id(workflow, node["id"])
                     continue
-                response, sources, language = self._invoke_agent(
+                agent_response, agent_sources, agent_language = self._invoke_agent(
                     agent=agent,
                     node_data=data,
                     captured_vars=captured_vars,
                     bot_id=bot_id,
                     user_input=user_input or "",
                 )
+                response = (response + "\n\n" + agent_response) if response and agent_response else (response or agent_response)
+                sources = agent_sources or sources
+                language = agent_language or language
                 agent_used = agent_id
                 frame["node_id"] = self._next_node_id(workflow, node["id"])
                 break
 
             if ntype == "handoff":
                 farewell = render_template(data.get("farewell"), captured_vars)
-                response = farewell
+                if farewell:
+                    response = (response + "\n\n" + farewell) if response else farewell
                 target = data.get("target") or "agentic"
                 handoff = {"target": target}
                 if target == "workflow":

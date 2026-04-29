@@ -11,14 +11,25 @@ No actualizar por: bugfixes menores, ajustes de UI, cambios de prompts sin impac
 **Tipo**: Plataforma SaaS para construir chatbots con agentes y RAG sin código
 **Inicio**: 2026-02-01
 **Basado en**: Aprendizajes de Puddle Assistant
-**Fase actual**: MVP + Workflows + Mapa del Agente + RAG centralizado + Especialistas custom alcanzables
+**Fase actual**: MVP + Workflows + Mapa editable + Workers grafo + Analytics
 **Repo**: https://github.com/Rodato/agentChatBuilder
 
 ---
 
-## Estado Actual (2026-04-28)
+## Estado Actual (2026-04-28 PM)
 
-### Novedades 2026-04-28 — Especialistas universales, RAG en BaseAgent, cleanup completo
+### Sesión 2026-04-28 PM — Reorden UX, Mapa editable, Workers grafo, mejoras
+
+- **Reorden de tabs (UX)**: Configuración → Conocimiento → Workflows → Workers → Mapa → Chat de prueba → Analytics. Renombrado UI: "Especialistas" → "Workers", "Documentos" → "Conocimiento". Eliminado el campo "Mensaje de bienvenida"; ahora la kickoff message cae a workflow `on_start` → worker `greeting` → fallback hardcoded.
+- **Mapa editable (Fase 2)**: el Mapa pasa de read-only a canvas de ensamble. Paleta lateral con Workers + Workflows ya creados → drag al canvas → conectar. Las aristas DEFINEN el routing y se persisten via `PUT /api/bots/{id}/map` que diff'ea contra el estado actual y actualiza `bot_agents.intents`, `bot_agents.tools.trigger_flow`, `bot_agents.metadata.trigger_flows`, `workflows.trigger_type`, `workflows.trigger_value`.
+- **Workers como grafos LangGraph-style (Fase 3)**: un Worker custom puede ser `kind='agent'` (default) o `kind='graph'`. Los grafos tienen `graph_definition` con orchestrator + subagents + synthesizer. El runner es `agents/graph_worker.py` (`GraphWorker`); el orchestrator-LLM decide ruta vía JSON `{"route": "<id>"}`. UI: nuevo `frontend/src/components/worker/GraphEditor.tsx` con paleta, canvas y inspector.
+- **Nodo `message` en Workflows**: nuevo tipo de nodo que envía texto fijo (con `{{vars}}`) sin esperar input. Encadena con otros `message` y se concatena la respuesta hasta el primer nodo bloqueante (capture / agent / handoff).
+- **Embeddings rápidos**: `EmbeddingClient` ahora soporta OpenAI directo (`text-embedding-3-small`, ~10x más rápido) además de OpenRouter (legacy). Selección via env var `EMBEDDING_PROVIDER` o auto-detect: si hay `OPENAI_API_KEY`, usa OpenAI; si no, OpenRouter.
+- **Analytics básico**: nueva tabla `chat_messages`, persistencia desde `api/main.py` (best-effort), endpoint `GET /api/bots/{id}/analytics`, tab Analytics con stats (totales, mensajes/día, distribución por worker / intent / mode, latencia promedio).
+
+## Estado anterior (2026-04-28 AM)
+
+### Sesión 2026-04-28 AM — Especialistas universales, RAG en BaseAgent, cleanup completo
 
 - **Renombrado UI**: "bot" → "Agente de IA" en todo lo user-facing. Tab interna "Agentes" → "Especialistas" para evitar el choque conceptual (un Agente de IA contiene varios Especialistas).
 - **Mapa del Agente** — nueva tab "Mapa" con React Flow read-only. Backend `GET /api/bots/{id}/map` devuelve agentes + workflows + edges derivadas (entry, intent_route, on_intent, manual_trigger, handoff, handoff_agentic). Componente `BotMapView` en `frontend/src/components/BotMap.tsx`.
@@ -231,7 +242,7 @@ MONGODB_URI=mongodb+srv://<user>:<password>@<cluster>.mongodb.net/agent_chat_bui
 - **Modelos OpenRouter**: siempre usar IDs con prefijo `provider/model`. IDs sin prefijo dan 400.
 - **VectorStore sin Atlas Index**: cosine similarity en Python. No requiere config en Atlas.
 - **MongoDB colección**: chunks en `doc_chunks` con campos `doc_id, bot_id, chunk_index, content, embedding, doc_name, doc_summary, doc_keywords, page, processed_at`. Al borrar un Agente de IA o un documento, los chunks se purgan explícitamente desde `delete_bot` / `delete_document`.
-- **Supabase tablas**: `bots`, `documents` (con `summary`, `keywords[]`), `bot_agents` (con `intents text[]`, `metadata jsonb`), `workflows`, `conversations`. Schema completo en `db/migrations/` (001..005).
+- **Supabase tablas**: `bots`, `documents` (con `summary`, `keywords[]`), `bot_agents` (con `intents text[]`, `kind`, `graph_definition jsonb`, `metadata jsonb`), `workflows`, `conversations`, `chat_messages`. Schema completo en `db/migrations/` (001..007).
 - **bot_id en /chat**: ahora es un campo Pydantic explícito en el body. Se pasa al Orchestrator y al WorkflowEngine.
 - **conversation_id**: generado en el cliente (frontend localStorage por bot). El motor de workflows lo usa como PK de estado.
 - **Orchestrator por bot**: no es singleton — `api/main.py:get_orchestrator_for_bot(bot_id)` con cache LRU TTL 30s. Se invalida al editar agentes o workflow.

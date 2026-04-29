@@ -30,6 +30,7 @@ import { Trash2, ArrowLeft } from "lucide-react";
 import { AgentNode } from "./nodes/AgentNode";
 import { CaptureNode } from "./nodes/CaptureNode";
 import { HandoffNode } from "./nodes/HandoffNode";
+import { MessageNode } from "./nodes/MessageNode";
 import {
   workflowApi,
   WorkflowDefinition,
@@ -45,6 +46,7 @@ const NODE_TYPES: NodeTypes = {
   agent: AgentNode,
   capture: CaptureNode,
   handoff: HandoffNode,
+  message: MessageNode,
 };
 
 let _nodeCounter = 0;
@@ -124,7 +126,8 @@ function WorkflowEditorInner({ botId, workflowId, onBack }: InnerProps) {
       const type = event.dataTransfer.getData("application/workflow-node-type") as
         | "capture"
         | "agent"
-        | "handoff";
+        | "handoff"
+        | "message";
       if (!type) return;
       const position = screenToFlowPosition({ x: event.clientX, y: event.clientY });
       const id = newNodeId(type);
@@ -133,6 +136,8 @@ function WorkflowEditorInner({ botId, workflowId, onBack }: InnerProps) {
         data = { var_name: "", prompt: "", skip_if_present: false };
       } else if (type === "agent") {
         data = { agent_id: "factual", system_prompt_override: "" };
+      } else if (type === "message") {
+        data = { text: "" };
       } else {
         data = { target: "agentic", farewell: "" };
       }
@@ -235,6 +240,16 @@ function WorkflowEditorInner({ botId, workflowId, onBack }: InnerProps) {
               <CardDescription>Arrastra al canvas</CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
+              <div
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.setData("application/workflow-node-type", "message");
+                  e.dataTransfer.effectAllowed = "move";
+                }}
+                className="cursor-grab active:cursor-grabbing rounded-md border border-yellow-300 bg-yellow-50 px-3 py-2 text-sm text-yellow-900"
+              >
+                💬 Mensaje fijo
+              </div>
               <div
                 draggable
                 onDragStart={(e) => {
@@ -416,6 +431,23 @@ function NodeInspector({
           </Button>
         )}
       </div>
+
+      {node.type === "message" && (
+        <>
+          <div className="space-y-1">
+            <Label>Mensaje del bot</Label>
+            <Textarea
+              rows={5}
+              placeholder="Hola! Soy el asistente de Acme. Hoy te ayudaré a..."
+              value={data.text ?? ""}
+              onChange={(e) => onChange({ text: e.target.value })}
+            />
+            <p className="text-xs text-gray-500">
+              Texto fijo que el bot envía sin esperar respuesta del usuario. Soporta variables: {availableVars.length ? availableVars.map((v) => `{{${v}}}`).join(" ") : "—"}
+            </p>
+          </div>
+        </>
+      )}
 
       {node.type === "capture" && (
         <>
