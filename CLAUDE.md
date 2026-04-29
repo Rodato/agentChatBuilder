@@ -11,14 +11,31 @@ No actualizar por: bugfixes menores, ajustes de UI, cambios de prompts sin impac
 **Tipo**: Plataforma SaaS para construir chatbots con agentes y RAG sin código
 **Inicio**: 2026-02-01
 **Basado en**: Aprendizajes de Puddle Assistant
-**Fase actual**: MVP + Workflows + Mapa editable + Workers grafo + Analytics
+**Fase actual**: MVP + Workflows + Mapa editable + Workers grafo con delegación + Analytics
 **Repo**: https://github.com/Rodato/agentChatBuilder
 
 ---
 
-## Estado Actual (2026-04-28 PM)
+## Estado Actual (2026-04-28 PM tarde — sesión completa)
 
-### Sesión 2026-04-28 PM — Reorden UX, Mapa editable, Workers grafo, mejoras
+### Iteración 5 (PM tarde) — UX polish + delegación Worker→Worker
+
+- **Worker→Worker delegation**: nuevo tipo de nodo `worker_ref` en el GraphEditor de Workers grafo. Permite delegar a otro Worker top-level del bot. Backend: `agents/graph_worker.py` invoca el target via `Orchestrator.get_agent(...).process()` con `state.metadata['delegation_depth']` y `MAX_DELEGATION_DEPTH=3` para evitar ciclos. Frontend: dropdown de workers hermanos (excluye self).
+- **Mapa: aristas Workflow→Worker (read-only)**: derivadas de los nodos `agent` dentro del `definition` de cada workflow. Edge kind nuevo `workflow_agent` con label "usa", estilo cyan punteado. Permite ver de un vistazo qué workers usa cada flujo. La edición sigue siendo dentro del Workflow editor.
+- **Workers en editor inline**: AgentEditPanel deja de ser Dialog modal y pasa a Card inline con botón "← Volver" (patrón consistente con WorkflowList → WorkflowEditor).
+- **Capture nodes con tipo de dato**: `text` (default), `number`, `email`, `date`, `boolean`, `phone`. Validación + normalización en backend (`core/workflow_engine.validate_capture_value`). Si el usuario responde inválido, mantiene `pending_capture` y repite la pregunta con un error.
+- **Auto-derivar entry node** en workflows: removido el botón "Marcar como inicial" (era redundante). `buildDefinition` calcula el entry como el primer nodo sin aristas entrantes.
+- **Descripciones consistentes** en todas las tabs (Configuración, Conocimiento, Workflows, Mapa, Chat de prueba, Analytics).
+
+### Iteración 4 (PM medio) — Nodo message + embeddings rápidos + analytics + docs
+
+- **Nodo `message` en Workflows**: nuevo tipo de nodo que envía texto fijo (con `{{vars}}`) sin esperar input. Encadena con otros message en el mismo turno hasta encontrar un nodo bloqueante (capture / agent / handoff).
+- **Embeddings dual-provider**: `EmbeddingClient` soporta OpenAI directo (`text-embedding-3-small`, ~10x más rápido) y OpenRouter (legacy ada-002). Selección via env var `EMBEDDING_PROVIDER` o auto-detect. Compromiso del usuario: `OPENAI_API_KEY` debe configurarse sí o sí cuando se haga deploy.
+- **Analytics básico**: tabla `chat_messages` (migración 007), persistencia desde `/chat` y `/chat/start`, endpoint `GET /api/bots/{id}/analytics`, tab Analytics con totales + barras por día + distribuciones (worker / intent / mode) + latencia promedio.
+
+### Iteración 3 (PM temprano) — Reorden UX, Mapa editable, Workers grafo
+
+#### Detalle iteración 3
 
 - **Reorden de tabs (UX)**: Configuración → Conocimiento → Workflows → Workers → Mapa → Chat de prueba → Analytics. Renombrado UI: "Especialistas" → "Workers", "Documentos" → "Conocimiento". Eliminado el campo "Mensaje de bienvenida"; ahora la kickoff message cae a workflow `on_start` → worker `greeting` → fallback hardcoded.
 - **Mapa editable (Fase 2)**: el Mapa pasa de read-only a canvas de ensamble. Paleta lateral con Workers + Workflows ya creados → drag al canvas → conectar. Las aristas DEFINEN el routing y se persisten via `PUT /api/bots/{id}/map` que diff'ea contra el estado actual y actualiza `bot_agents.intents`, `bot_agents.tools.trigger_flow`, `bot_agents.metadata.trigger_flows`, `workflows.trigger_type`, `workflows.trigger_value`.
