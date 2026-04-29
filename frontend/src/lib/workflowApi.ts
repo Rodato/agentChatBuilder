@@ -29,12 +29,15 @@ export const INTENT_LABELS: Record<IntentKey, string> = {
   AMBIGUOUS: "Ambiguo / Fallback",
 };
 
+export type CaptureDataType = "text" | "number" | "email" | "date" | "boolean" | "phone";
+
 export interface WorkflowNodeData {
   label?: string;
   // capture
   var_name?: string;
   prompt?: string;
   skip_if_present?: boolean;
+  data_type?: CaptureDataType;
   // agent
   agent_id?: string;
   system_prompt_override?: string;
@@ -45,6 +48,15 @@ export interface WorkflowNodeData {
   // message (texto fijo del bot, sin esperar input)
   text?: string;
 }
+
+export const CAPTURE_DATA_TYPES: { value: CaptureDataType; label: string; hint: string }[] = [
+  { value: "text", label: "Texto", hint: "Cualquier respuesta libre" },
+  { value: "number", label: "Número", hint: "Acepta enteros o decimales" },
+  { value: "email", label: "Email", hint: "Valida formato nombre@dominio.com" },
+  { value: "date", label: "Fecha", hint: "Formatos: YYYY-MM-DD o DD/MM/YYYY" },
+  { value: "boolean", label: "Sí/No", hint: "Acepta sí, no, yes, no, true, false…" },
+  { value: "phone", label: "Teléfono", hint: "Acepta dígitos y separadores comunes" },
+];
 
 export interface WorkflowNode {
   id: string;

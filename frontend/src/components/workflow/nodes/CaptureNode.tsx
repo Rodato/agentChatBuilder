@@ -4,17 +4,32 @@ import { memo } from "react";
 import { Handle, Position, NodeProps } from "@xyflow/react";
 import type { WorkflowNodeData } from "@/lib/workflowApi";
 
-type CaptureNodeData = Pick<WorkflowNodeData, "var_name" | "prompt" | "skip_if_present" | "label">;
+type CaptureNodeData = Pick<WorkflowNodeData, "var_name" | "prompt" | "skip_if_present" | "label" | "data_type">;
+
+const TYPE_BADGE: Record<string, string> = {
+  text: "Texto",
+  number: "Número",
+  email: "Email",
+  date: "Fecha",
+  boolean: "Sí/No",
+  phone: "Teléfono",
+};
 
 function CaptureNodeImpl({ data, selected }: NodeProps) {
   const d = (data || {}) as CaptureNodeData;
+  const typeLabel = TYPE_BADGE[d.data_type || "text"] ?? "Texto";
   return (
     <div
       className={`min-w-[240px] rounded-lg border bg-white shadow-sm ${selected ? "border-amber-500 ring-2 ring-amber-200" : "border-gray-200"}`}
     >
       <Handle type="target" position={Position.Top} className="!bg-amber-500 !w-4 !h-4 !border-2 !border-white hover:!bg-amber-600" />
-      <div className="px-3 py-2 border-b bg-amber-50 text-amber-900 text-xs font-semibold uppercase tracking-wide">
-        Captura {d.skip_if_present && <span className="ml-1 normal-case font-normal text-amber-700">· skip si existe</span>}
+      <div className="px-3 py-2 border-b bg-amber-50 text-amber-900 text-xs font-semibold uppercase tracking-wide flex items-center justify-between">
+        <span>
+          Captura {d.skip_if_present && <span className="ml-1 normal-case font-normal text-amber-700">· skip si existe</span>}
+        </span>
+        <span className="normal-case font-normal text-[10px] px-1.5 py-0.5 rounded bg-amber-200 text-amber-900">
+          {typeLabel}
+        </span>
       </div>
       <div className="p-3 space-y-1">
         <div className="text-sm font-medium">

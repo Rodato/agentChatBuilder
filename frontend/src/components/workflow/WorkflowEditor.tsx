@@ -39,6 +39,8 @@ import {
   TriggerType,
   IntentKey,
   INTENT_LABELS,
+  CAPTURE_DATA_TYPES,
+  CaptureDataType,
 } from "@/lib/workflowApi";
 import { agentsApi, AgentRow } from "@/lib/api";
 
@@ -133,7 +135,7 @@ function WorkflowEditorInner({ botId, workflowId, onBack }: InnerProps) {
       const id = newNodeId(type);
       let data: WorkflowNodeData = {};
       if (type === "capture") {
-        data = { var_name: "", prompt: "", skip_if_present: false };
+        data = { var_name: "", prompt: "", skip_if_present: false, data_type: "text" };
       } else if (type === "agent") {
         data = { agent_id: "factual", system_prompt_override: "" };
       } else if (type === "message") {
@@ -460,6 +462,24 @@ function NodeInspector({
                 onChange({ var_name: e.target.value.replace(/\s+/g, "_").replace(/[^\w]/g, "") })
               }
             />
+          </div>
+          <div className="space-y-1">
+            <Label>Tipo de dato</Label>
+            <select
+              value={(data.data_type as CaptureDataType) ?? "text"}
+              onChange={(e) => onChange({ data_type: e.target.value as CaptureDataType })}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            >
+              {CAPTURE_DATA_TYPES.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-gray-500">
+              {CAPTURE_DATA_TYPES.find((t) => t.value === (data.data_type ?? "text"))?.hint}
+              {" · "}Si la respuesta no cumple, el bot pide al usuario que la corrija.
+            </p>
           </div>
           <div className="space-y-1">
             <Label>Pregunta al usuario</Label>

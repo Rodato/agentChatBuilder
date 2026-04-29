@@ -6,7 +6,8 @@ decide when to push/pop frames — that is the responsibility of `core.chat_engi
 which interprets the engine's `handoff` output.
 
 Node types supported:
-- `capture`   — stores user input into a named variable, then advances
+- `message`   — emits fixed text and advances in the same turn (non-blocking)
+- `capture`   — stores user input into a named variable with optional type validation
 - `agent`     — invokes a specialized agent and emits its response
 - `handoff`   — signals a transition back to agentic mode or to another workflow
 """
@@ -15,7 +16,8 @@ from __future__ import annotations
 
 import re
 import time
-from typing import Any, Dict, List, Optional
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Tuple
 
 from loguru import logger
 
@@ -26,6 +28,56 @@ from core.state import AgentState
 MAX_ITERATIONS_PER_TURN = 20
 
 _VAR_RE = re.compile(r"\{\{\s*(\w+)\s*\}\}")
+
+VALID_DATA_TYPES = {"text", "number", "email", "date", "boolean", "phone"}
+
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_PHONE_RE = re.compile(r"[+\d()\s\-]{6,}")
+_DATE_FORMATS = ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%m/%d/%Y", "%d/%m/%y")
+_BOOLEAN_TRUE = {"si", "sí", "yes", "true", "1", "on", "ok", "claro", "dale"}
+_BOOLEAN_FALSE = {"no", "false", "0", "off", "nope"}
+
+
+def validate_capture_value(value: str, data_type: str) -> Tuple[bool, Any, Optional[str]]:
+    """Returns (ok, normalized_value, error_message).
+
+    For ok=True, `normalized_value` is the value to persist (typed when possible).
+    For ok=False, `error_message` is a user-facing string explaining the issue.
+    """
+    raw = (value or "").strip()
+    dt = (data_type or "text").lower()
+    if not raw:
+        return False, None, "El valor no puede estar vacío."
+    if dt == "text":
+        return True, raw, None
+    if dt == "number":
+        try:
+            if "." in raw or "," in raw:
+                return True, float(raw.replace(",", ".")), None
+            return True, int(raw), None
+        except ValueError:
+            return False, None, "Necesito un número válido."
+    if dt == "email":
+        return (True, raw.lower(), None) if _EMAIL_RE.match(raw) else (False, None, "Necesito un correo electrónico válido (ej: nombre@ejemplo.com).")
+    if dt == "phone":
+        return (True, raw, None) if _PHONE_RE.search(raw) else (False, None, "Necesito un número de teléfono válido.")
+    if dt == "boolean":
+        low = raw.lower()
+        if low in _BOOLEAN_TRUE:
+            return True, True, None
+        if low in _BOOLEAN_FALSE:
+            return True, False, None
+        return False, None, "Responde sí o no."
+    if dt == "date":
+        for fmt in _DATE_FORMATS:
+            try:
+                d = datetime.strptime(raw, fmt).date()
+                return True, d.isoformat(), None
+            except ValueError:
+                continue
+        return False, None, "Necesito una fecha válida (ej: 2026-04-28 o 28/04/2026)."
+    # Unknown type — accept as text.
+    return True, raw, None
 
 
 def render_template(template: Optional[str], vars: Dict[str, Any]) -> str:
@@ -116,10 +168,34 @@ class WorkflowEngine:
 
         # Consume pending_capture with incoming user input.
         if user_input is not None and frame.get("pending_capture"):
-            var_name = frame["pending_capture"]["var_name"]
-            captured_vars[var_name] = sanitize_value(user_input)
-            frame["pending_capture"] = None
-            frame["node_id"] = self._next_node_id(workflow, frame["node_id"])
+            pc = frame["pending_capture"]
+            var_name = pc["var_name"]
+            data_type = pc.get("data_type") or "text"
+            ok, normalized, err = validate_capture_value(user_input, data_type)
+            if ok:
+                captured_vars[var_name] = (
+                    sanitize_value(normalized) if isinstance(normalized, str) else normalized
+                )
+                frame["pending_capture"] = None
+                frame["node_id"] = self._next_node_id(workflow, frame["node_id"])
+            else:
+                # Validation failed — keep pending_capture, re-prompt.
+                node = self._node(workflow, frame["node_id"])
+                retry_prompt = render_template(
+                    (node.get("data") or {}).get("prompt", "") if node else "",
+                    captured_vars,
+                )
+                response = f"{err} {retry_prompt}".strip() if retry_prompt else err
+                return {
+                    "response": response or "El valor no es válido. Inténtalo de nuevo.",
+                    "sources": [],
+                    "agent_used": "capture",
+                    "language": "es",
+                    "frame": frame,
+                    "handoff": None,
+                    "captured_vars": captured_vars,
+                    "processing_time_ms": int((time.time() - start_time) * 1000),
+                }
 
         response = ""
         sources: List[Dict[str, Any]] = []
@@ -164,7 +240,10 @@ class WorkflowEngine:
                 if data.get("skip_if_present") and var_name in captured_vars:
                     frame["node_id"] = self._next_node_id(workflow, node["id"])
                     continue
-                frame["pending_capture"] = {"var_name": var_name}
+                frame["pending_capture"] = {
+                    "var_name": var_name,
+                    "data_type": data.get("data_type") or "text",
+                }
                 rendered = render_template(data.get("prompt", ""), captured_vars)
                 response = (response + "\n\n" + rendered) if response and rendered else (response or rendered)
                 agent_used = "capture"
