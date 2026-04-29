@@ -24,7 +24,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { Trash2, ArrowLeft } from "lucide-react";
 
 import { AgentNode } from "./nodes/AgentNode";
@@ -70,7 +69,6 @@ function WorkflowEditorInner({ botId, workflowId, onBack }: InnerProps) {
   const [triggerType, setTriggerType] = useState<TriggerType>("manual");
   const [triggerValue, setTriggerValue] = useState<IntentKey>("FACTUAL");
   const [enabled, setEnabled] = useState(true);
-  const [entryNodeId, setEntryNodeId] = useState<string | null>(null);
   const [otherWorkflows, setOtherWorkflows] = useState<WorkflowSummary[]>([]);
   const [agentRows, setAgentRows] = useState<AgentRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -95,7 +93,6 @@ function WorkflowEditorInner({ botId, workflowId, onBack }: InnerProps) {
         setTriggerType(wf.trigger_type);
         setTriggerValue((wf.trigger_value as IntentKey) || "FACTUAL");
         setEnabled(wf.enabled);
-        setEntryNodeId(wf.definition?.entry_node_id ?? null);
         setNodes((wf.definition?.nodes || []) as Node[]);
         setEdges((wf.definition?.edges || []) as Edge[]);
         setOtherWorkflows(list.filter((w) => w.id !== workflowId));
@@ -150,7 +147,6 @@ function WorkflowEditorInner({ botId, workflowId, onBack }: InnerProps) {
         data: data as unknown as Record<string, unknown>,
       };
       setNodes((nds) => nds.concat(newNode));
-      setEntryNodeId((prev) => prev ?? id);
       setSelectedId(id);
     },
     [screenToFlowPosition, setNodes]
@@ -169,7 +165,6 @@ function WorkflowEditorInner({ botId, workflowId, onBack }: InnerProps) {
     (nodeId: string) => {
       setNodes((nds) => nds.filter((n) => n.id !== nodeId));
       setEdges((eds) => eds.filter((e) => e.source !== nodeId && e.target !== nodeId));
-      setEntryNodeId((prev) => (prev === nodeId ? null : prev));
       setSelectedId(null);
     },
     [setEdges, setNodes]
@@ -186,17 +181,22 @@ function WorkflowEditorInner({ botId, workflowId, onBack }: InnerProps) {
       .map((n) => (n.data as WorkflowNodeData).var_name as string);
   }, [nodes]);
 
-  const buildDefinition = (): WorkflowDefinition => ({
+  const buildDefinition = (): WorkflowDefinition => {
+    // Auto-derive entry: the first node without inbound edges (or nodes[0] as fallback).
+    const targetIds = new Set(edges.map((e) => e.target));
+    const auto = nodes.find((n) => !targetIds.has(n.id))?.id ?? nodes[0]?.id ?? null;
+    return {
     version: 1,
-    entry_node_id: entryNodeId ?? (nodes[0]?.id ?? null),
+    entry_node_id: auto,
     nodes: nodes.map((n) => ({
       id: n.id,
-      type: (n.type as "agent" | "capture" | "handoff") ?? "agent",
+      type: (n.type as "agent" | "capture" | "handoff" | "message") ?? "agent",
       position: { x: n.position.x, y: n.position.y },
       data: (n.data || {}) as WorkflowNodeData,
     })),
     edges: edges.map((e) => ({ id: e.id, source: e.source, target: e.target })),
-  });
+    };
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -378,13 +378,11 @@ function WorkflowEditorInner({ botId, workflowId, onBack }: InnerProps) {
               {selectedNode ? (
                 <NodeInspector
                   node={selectedNode}
-                  isEntry={entryNodeId === selectedNode.id}
                   availableVars={availableVars}
                   otherWorkflows={otherWorkflows}
                   agents={agentRows}
                   onChange={(patch) => updateNodeData(selectedNode.id, patch)}
                   onDelete={() => removeNode(selectedNode.id)}
-                  onSetEntry={() => setEntryNodeId(selectedNode.id)}
                 />
               ) : (
                 <p className="text-sm text-gray-500">Haz clic en un nodo del canvas.</p>
@@ -401,38 +399,25 @@ function WorkflowEditorInner({ botId, workflowId, onBack }: InnerProps) {
 
 interface InspectorProps {
   node: Node;
-  isEntry: boolean;
   availableVars: string[];
   otherWorkflows: WorkflowSummary[];
   agents: AgentRow[];
   onChange: (patch: Partial<WorkflowNodeData>) => void;
   onDelete: () => void;
-  onSetEntry: () => void;
 }
 
 function NodeInspector({
   node,
-  isEntry,
   availableVars,
   otherWorkflows,
   agents,
   onChange,
   onDelete,
-  onSetEntry,
 }: InspectorProps) {
   const data = (node.data || {}) as WorkflowNodeData;
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2">
-        {isEntry ? (
-          <Badge>Nodo inicial</Badge>
-        ) : (
-          <Button variant="outline" size="sm" onClick={onSetEntry}>
-            Marcar como inicial
-          </Button>
-        )}
-      </div>
 
       {node.type === "message" && (
         <>
