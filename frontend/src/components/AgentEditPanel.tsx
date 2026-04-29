@@ -225,6 +225,8 @@ export function AgentEditPanel({ agent, botId, onSave, onClose }: AgentEditPanel
               <GraphEditor
                 value={draft.graph_definition}
                 onChange={setGraphDefinition}
+                botId={botId}
+                selfAgentId={draft.id}
               />
             </section>
           )}

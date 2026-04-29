@@ -29,8 +29,9 @@ from llm.multi_llm_client import MultiLLMClient
 
 
 MAX_GRAPH_DEPTH = 8
+MAX_DELEGATION_DEPTH = 3  # Worker → Worker → Worker chain limit
 
-VALID_NODE_TYPES = {"orchestrator", "subagent", "synthesizer"}
+VALID_NODE_TYPES = {"orchestrator", "subagent", "synthesizer", "worker_ref"}
 
 
 def _extract_route(text: str) -> Optional[str]:
@@ -53,6 +54,10 @@ def _extract_route(text: str) -> Optional[str]:
 
 class GraphWorker(BaseAgent):
     """Worker whose body is a graph of sub-agents."""
+
+    # Set by the orchestrator after instantiation so worker_ref nodes can
+    # invoke sibling workers without a circular import.
+    orchestrator_ref: Optional[Any] = None
 
     def __init__(
         self,
@@ -187,6 +192,49 @@ class GraphWorker(BaseAgent):
             logger.error(f"[{self.name}/{node_id}] subagent LLM error: {e}")
             return ""
 
+    def _run_worker_ref(self, node_id: str, state: AgentState, outputs: Dict[str, str]) -> str:
+        """Delegate to another top-level Worker. Returns its response text."""
+        data = self._node_data(node_id)
+        target_id = data.get("target_worker_id") or data.get("agent_id")
+        if not target_id:
+            return "(worker_ref sin target_worker_id)"
+        if not self.orchestrator_ref:
+            logger.warning(f"[{self.name}/{node_id}] worker_ref needs orchestrator_ref")
+            return ""
+        target = self.orchestrator_ref.get_agent(target_id)
+        if target is None:
+            return f"(worker '{target_id}' no existe)"
+
+        # Cycle / depth guard.
+        delegation_depth = int(state.metadata.get("delegation_depth", 0))
+        if delegation_depth >= MAX_DELEGATION_DEPTH:
+            logger.warning(f"[{self.name}/{node_id}] delegation depth exceeded → {target_id}")
+            return f"(profundidad de delegación excedida en {target_id})"
+
+        # Build a sub-state. Pass upstream context as state.context so the
+        # delegated worker can use it.
+        upstream = self._upstream_outputs(node_id, outputs)
+        ctx_parts: List[str] = []
+        if state.context:
+            ctx_parts.append(state.context)
+        for src_id, out in upstream:
+            ctx_parts.append(f"[{self._node_data(src_id).get('label') or src_id}]\n{out}")
+
+        sub_state = AgentState(
+            user_input=state.user_input,
+            language=state.language,
+            mode="DELEGATED",
+            context="\n\n".join(ctx_parts) if ctx_parts else "",
+            bot_id=state.bot_id,
+            metadata={"delegation_depth": delegation_depth + 1},
+        )
+        try:
+            result_state = target.process(sub_state)
+            return (result_state.response or "").strip()
+        except Exception as e:
+            logger.error(f"[{self.name}/{node_id}] delegated worker {target_id} failed: {e}")
+            return ""
+
     def _run_synthesizer(self, node_id: str, state: AgentState, outputs: Dict[str, str]) -> str:
         data = self._node_data(node_id)
         explicit_inputs = data.get("inputs") if isinstance(data.get("inputs"), list) else None
@@ -242,6 +290,8 @@ class GraphWorker(BaseAgent):
                 outputs[current] = self._run_subagent(current, state, outputs)
             elif kind == "synthesizer":
                 outputs[current] = self._run_synthesizer(current, state, outputs)
+            elif kind == "worker_ref":
+                outputs[current] = self._run_worker_ref(current, state, outputs)
             else:
                 logger.warning(f"[{self.name}] unknown node type {kind} at {current}")
                 outputs[current] = ""

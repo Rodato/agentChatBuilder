@@ -81,17 +81,18 @@ export type WorkerKind = "agent" | "graph";
 
 export interface GraphNodeData {
   label?: string;
-  type?: "orchestrator" | "subagent" | "synthesizer";
+  type?: "orchestrator" | "subagent" | "synthesizer" | "worker_ref";
   system_prompt?: string;
   model?: string;
   temperature?: number;
   tools?: Partial<AgentTools>;
   inputs?: string[]; // explicit upstream node ids for synthesizer
+  target_worker_id?: string; // for worker_ref: target top-level worker
 }
 
 export interface GraphNode {
   id: string;
-  type: "orchestrator" | "subagent" | "synthesizer";
+  type: "orchestrator" | "subagent" | "synthesizer" | "worker_ref";
   position: { x: number; y: number };
   data: GraphNodeData;
 }

@@ -119,12 +119,15 @@ class Orchestrator:
             return cls(self.llm, config, self.vector_store)
         # Custom workers: kind="graph" → GraphWorker; otherwise GenericAgent.
         if (config or {}).get("kind") == "graph":
-            return GraphWorker(
+            gw = GraphWorker(
                 name=config.get("name") or agent_id,
                 llm_client=self.llm,
                 agent_config=config,
                 vector_store=self.vector_store,
             )
+            # Allow worker_ref nodes to delegate to sibling workers.
+            gw.orchestrator_ref = self
+            return gw
         return GenericAgent(
             name=config.get("name") or agent_id,
             llm_client=self.llm,

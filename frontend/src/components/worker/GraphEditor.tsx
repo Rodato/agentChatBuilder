@@ -28,7 +28,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Trash2 } from "lucide-react";
-import { GraphDefinition, GraphNodeData } from "@/lib/api";
+import { GraphDefinition, GraphNodeData, agentsApi, AgentRow } from "@/lib/api";
 
 const MODEL_OPTIONS = [
   { value: "google/gemini-2.5-flash", label: "Gemini 2.5 Flash" },
@@ -47,19 +47,21 @@ function newNodeId(prefix: string): string {
 
 // ── Custom nodes ────────────────────────────────────────────────────────────
 
-type NType = "orchestrator" | "subagent" | "synthesizer";
+type NType = "orchestrator" | "subagent" | "synthesizer" | "worker_ref";
 
 function nodeStyles(type: NType, selected?: boolean) {
   const base = "min-w-[180px] rounded-lg border bg-white shadow-sm";
   const sel = selected ? "ring-2 ring-offset-1" : "";
   if (type === "orchestrator") return `${base} border-purple-500 ${selected ? "ring-purple-300" : ""} ${sel}`;
   if (type === "synthesizer") return `${base} border-emerald-500 ${selected ? "ring-emerald-300" : ""} ${sel}`;
+  if (type === "worker_ref") return `${base} border-cyan-500 ${selected ? "ring-cyan-300" : ""} ${sel}`;
   return `${base} border-blue-400 ${selected ? "ring-blue-300" : ""} ${sel}`;
 }
 
 function headerStyles(type: NType) {
   if (type === "orchestrator") return "bg-purple-100 text-purple-900";
   if (type === "synthesizer") return "bg-emerald-100 text-emerald-900";
+  if (type === "worker_ref") return "bg-cyan-100 text-cyan-900";
   return "bg-blue-50 text-blue-900";
 }
 
@@ -87,6 +89,7 @@ const NODE_TYPES: NodeTypes = {
   orchestrator: (props) => <NodeView {...props} type="orchestrator" />,
   subagent: (props) => <NodeView {...props} type="subagent" />,
   synthesizer: (props) => <NodeView {...props} type="synthesizer" />,
+  worker_ref: (props) => <NodeView {...props} type="worker_ref" />,
 };
 
 // ── Editor component ────────────────────────────────────────────────────────
@@ -94,9 +97,26 @@ const NODE_TYPES: NodeTypes = {
 interface Props {
   value: GraphDefinition | null | undefined;
   onChange: (next: GraphDefinition) => void;
+  botId?: string; // when set, enables worker_ref dropdown with sibling workers
+  selfAgentId?: string; // exclude self from the dropdown to prevent direct recursion
 }
 
-function GraphEditorInner({ value, onChange }: Props) {
+function GraphEditorInner({ value, onChange, botId, selfAgentId }: Props) {
+  const [siblingWorkers, setSiblingWorkers] = useState<AgentRow[]>([]);
+  useEffect(() => {
+    if (!botId) return;
+    let cancelled = false;
+    agentsApi
+      .list(botId)
+      .then((rows) => {
+        if (cancelled) return;
+        setSiblingWorkers(rows.filter((r) => r.agent_id !== selfAgentId && r.enabled));
+      })
+      .catch(() => setSiblingWorkers([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [botId, selfAgentId]);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [entryNodeId, setEntryNodeId] = useState<string | null>(null);
@@ -196,6 +216,8 @@ function GraphEditorInner({ value, onChange }: Props) {
           ? { label: "Orquestador", system_prompt: "Decide a qué sub-agente delegar.", model: "google/gemini-2.5-flash-lite", temperature: 0.2 }
           : type === "synthesizer"
           ? { label: "Sintetizador", system_prompt: "Sintetiza los outputs en una respuesta final.", model: "google/gemini-2.5-flash", temperature: 0.4 }
+          : type === "worker_ref"
+          ? { label: "Delegar a worker", target_worker_id: siblingWorkers[0]?.agent_id }
           : { label: "Sub-agente", system_prompt: "", model: "google/gemini-2.5-flash-lite", temperature: 0.5 };
       const newNode: Node = { id, type, position, data: data as Record<string, unknown> };
       setNodes((ns) => ns.concat(newNode));
@@ -235,7 +257,7 @@ function GraphEditorInner({ value, onChange }: Props) {
               <CardDescription className="text-xs">Arrastra al canvas</CardDescription>
             </CardHeader>
             <CardContent className="space-y-1.5 pt-0">
-              {(["orchestrator", "subagent", "synthesizer"] as NType[]).map((t) => (
+              {(["orchestrator", "subagent", "synthesizer", "worker_ref"] as NType[]).map((t) => (
                 <div
                   key={t}
                   draggable
@@ -248,10 +270,17 @@ function GraphEditorInner({ value, onChange }: Props) {
                       ? "border-purple-400 bg-purple-50 text-purple-900"
                       : t === "synthesizer"
                       ? "border-emerald-400 bg-emerald-50 text-emerald-900"
+                      : t === "worker_ref"
+                      ? "border-cyan-400 bg-cyan-50 text-cyan-900"
                       : "border-blue-400 bg-blue-50 text-blue-900"
                   }`}
+                  title={
+                    t === "worker_ref"
+                      ? "Delega la respuesta a otro Worker top-level del bot"
+                      : undefined
+                  }
                 >
-                  {t}
+                  {t === "worker_ref" ? "delegate" : t}
                 </div>
               ))}
             </CardContent>
@@ -297,6 +326,7 @@ function GraphEditorInner({ value, onChange }: Props) {
                 <NodeInspector
                   node={selectedNode}
                   isEntry={entryNodeId === selectedNode.id}
+                  siblingWorkers={siblingWorkers}
                   onChange={(p) => updateNodeData(selectedNode.id, p)}
                   onSetEntry={() => setEntryNodeId(selectedNode.id)}
                   onDelete={() => removeNode(selectedNode.id)}
@@ -320,13 +350,15 @@ function GraphEditorInner({ value, onChange }: Props) {
 interface InspectorProps {
   node: Node;
   isEntry: boolean;
+  siblingWorkers: AgentRow[];
   onChange: (patch: Partial<GraphNodeData>) => void;
   onSetEntry: () => void;
   onDelete: () => void;
 }
 
-function NodeInspector({ node, isEntry, onChange, onSetEntry, onDelete }: InspectorProps) {
+function NodeInspector({ node, isEntry, siblingWorkers, onChange, onSetEntry, onDelete }: InspectorProps) {
   const data = (node.data || {}) as GraphNodeData;
+  const isWorkerRef = node.type === "worker_ref";
   return (
     <>
       <div className="flex items-center justify-between gap-2">
@@ -345,6 +377,30 @@ function NodeInspector({ node, isEntry, onChange, onSetEntry, onDelete }: Inspec
         <Label className="text-xs">Etiqueta</Label>
         <Input value={data.label ?? ""} onChange={(e) => onChange({ label: e.target.value })} />
       </div>
+
+      {isWorkerRef && (
+        <div className="space-y-1">
+          <Label className="text-xs">Worker destino</Label>
+          <select
+            value={data.target_worker_id ?? ""}
+            onChange={(e) => onChange({ target_worker_id: e.target.value })}
+            className="w-full rounded-md border border-input bg-background px-2 py-1 text-xs"
+          >
+            <option value="">(selecciona un worker)</option>
+            {siblingWorkers.map((w) => (
+              <option key={w.agent_id} value={w.agent_id}>
+                {w.name}
+                {w.is_custom ? " (custom)" : ""}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-gray-500">
+            Cuando este nodo se ejecuta, delega al worker seleccionado y usa su respuesta como output.
+          </p>
+        </div>
+      )}
+
+      {!isWorkerRef && (
       <div className="space-y-1">
         <Label className="text-xs">System prompt</Label>
         <Textarea
@@ -353,6 +409,8 @@ function NodeInspector({ node, isEntry, onChange, onSetEntry, onDelete }: Inspec
           onChange={(e) => onChange({ system_prompt: e.target.value })}
         />
       </div>
+      )}
+      {!isWorkerRef && (
       <div className="space-y-1">
         <Label className="text-xs">Modelo</Label>
         <select
@@ -367,6 +425,8 @@ function NodeInspector({ node, isEntry, onChange, onSetEntry, onDelete }: Inspec
           ))}
         </select>
       </div>
+      )}
+      {!isWorkerRef && (
       <div className="space-y-1">
         <Label className="text-xs">Temperatura: {(data.temperature ?? 0.5).toFixed(1)}</Label>
         <input
@@ -379,6 +439,7 @@ function NodeInspector({ node, isEntry, onChange, onSetEntry, onDelete }: Inspec
           className="w-full accent-blue-600"
         />
       </div>
+      )}
       {node.type === "subagent" && (
         <label className="flex items-center gap-2 text-xs">
           <input
